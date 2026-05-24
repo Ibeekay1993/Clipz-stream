@@ -132,6 +132,82 @@ object SampleVideos {
                     )
                 )
             )
+        ),
+        SampleVideo(
+            title = "👾 Awesome Vibecoding & High-Fidelity AI Agents",
+            description = "Learn how to architect, manage context, design processes, and avoid AI hallucinations with production-grade engineering discipline.",
+            url = "https://www.youtube.com/watch?v=AaMdXZMvT3w",
+            durationSeconds = 150,
+            transcript = "Vibecoding is wonderful, but to build real production-grade products, we need engineering discipline. This means strict context management, two-phase development, and real process supervision. Avoid fake progress and AI hallucinations by implementing real validation gates at every stage of your pipeline.",
+            mockClips = listOf(
+                GeminiClipOutput(
+                    title = "🎯 Phase 1: Real Pipeline Engineering",
+                    startSec = 0,
+                    endSec = 40,
+                    viralScore = 97,
+                    viralReason = "Extremely high retention hook addressing actual software failures vs hyped vibecoding prototypes.",
+                    captions = listOf(
+                        GeminiWordCaption("Vibecoding", 200, 900), GeminiWordCaption("is", 900, 1100),
+                        GeminiWordCaption("wonderful,", 1100, 1500), GeminiWordCaption("but", 1500, 1700),
+                        GeminiWordCaption("to", 1700, 1900), GeminiWordCaption("build", 1900, 2200),
+                        GeminiWordCaption("real", 2200, 2500), GeminiWordCaption("production", 2500, 3000),
+                        GeminiWordCaption("products,", 3000, 3500), GeminiWordCaption("we", 3500, 3700),
+                        GeminiWordCaption("need", 3700, 4000), GeminiWordCaption("engineering", 4000, 4600),
+                        GeminiWordCaption("discipline.", 4600, 5300)
+                    )
+                ),
+                GeminiClipOutput(
+                    title = "🛡️ Defeating Pipeline Hallucinations",
+                    startSec = 41,
+                    endSec = 90,
+                    viralScore = 95,
+                    viralReason = "Actionable checklist of quality gates. Highly educational and shareable among tech leads.",
+                    captions = listOf(
+                        GeminiWordCaption("Avoid", 41000, 41400), GeminiWordCaption("fake", 41400, 41700),
+                        GeminiWordCaption("progress", 41700, 42200), GeminiWordCaption("and", 42200, 42400),
+                        GeminiWordCaption("AI", 42400, 42700), GeminiWordCaption("hallucinations", 42700, 43500),
+                        GeminiWordCaption("by", 43500, 43700), GeminiWordCaption("implementing", 43700, 44300),
+                        GeminiWordCaption("real", 44300, 44600), GeminiWordCaption("validation", 44600, 45200),
+                        GeminiWordCaption("gates.", 45200, 45800)
+                    )
+                )
+            )
+        ),
+        SampleVideo(
+            title = "🎮 Clipz Stream: Automated Live Highlights",
+            description = "Seamless Twitch stream extraction and automated highlights. Integrates audio peaks, chat velocity, and visual action trackers for viral gameplay clipping.",
+            url = "https://github.com/Ibeekay1993/Clipz-stream",
+            durationSeconds = 180,
+            transcript = "Clipz-Stream is designed to solve the manual highlight clipping grind. By tracking Twitch chat velocity, high frequency visual frames, and microphone volume peaks, the platform automatically crops the perfect epic clutch plays, hilarious fail states, and legendary reactions to ready-to-share 9:16 vertical shorts.",
+            mockClips = listOf(
+                GeminiClipOutput(
+                    title = "👾 AI Powered Automated Stream Clipper",
+                    startSec = 0,
+                    endSec = 35,
+                    viralScore = 99,
+                    viralReason = "Instant hook on pain pain points of streaming highlight compilation. Universal appeal to gamer and developer content creators.",
+                    captions = listOf(
+                        GeminiWordCaption("Clipz-Stream", 200, 900), GeminiWordCaption("is", 900, 1100),
+                        GeminiWordCaption("designed", 1100, 1400), GeminiWordCaption("to", 1400, 1600),
+                        GeminiWordCaption("solve", 1600, 1900), GeminiWordCaption("the", 1900, 2100),
+                        GeminiWordCaption("manual", 2100, 2400), GeminiWordCaption("highlight", 2400, 2800),
+                        GeminiWordCaption("clipping", 2800, 3100), GeminiWordCaption("grind.", 3100, 3600)
+                    )
+                ),
+                GeminiClipOutput(
+                    title = "📈 Scoring Chat Velocity & Volume Peaks",
+                    startSec = 36,
+                    endSec = 82,
+                    viralScore = 96,
+                    viralReason = "High technical value showing exactly how Twitch chat metrics determine peak player engagement during a broadcast.",
+                    captions = listOf(
+                        GeminiWordCaption("By", 36000, 36300), GeminiWordCaption("tracking", 36300, 36700),
+                        GeminiWordCaption("Twitch", 36700, 37100), GeminiWordCaption("chat", 37100, 37400),
+                        GeminiWordCaption("velocity", 37400, 38000), GeminiWordCaption("and", 38000, 38200),
+                        GeminiWordCaption("volume", 38200, 38600), GeminiWordCaption("peaks", 38600, 39200)
+                    )
+                )
+            )
         )
     )
 }

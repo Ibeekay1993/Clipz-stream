@@ -41,6 +41,9 @@ import com.example.ui.theme.SurfaceSlate
 import androidx.compose.ui.viewinterop.AndroidView
 import android.net.Uri
 
+private class PositionRef(var value: Long)
+private class PlaybackStateRef(var isPlaying: Boolean? = null)
+
 @Composable
 fun VideoPlayerSimulator(
     modifier: Modifier = Modifier,
@@ -71,6 +74,9 @@ fun VideoPlayerSimulator(
     val activeWord = captions.find { currentPositionMs in it.startMs..it.endMs }
     val activeWordIndex = captions.indexOf(activeWord)
 
+    val lastPositionRef = remember { PositionRef(0L) }
+    val playStateRef = remember { PlaybackStateRef() }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -85,7 +91,7 @@ fun VideoPlayerSimulator(
             videoUri.isNotEmpty() && (
                 videoUri.startsWith("content:") || 
                 videoUri.startsWith("file:") || 
-                (videoUri.startsWith("http") && (videoUri.lowercase().endsWith(".mp4") || videoUri.lowercase().endsWith(".mkv") || (!videoUri.lowercase().contains("youtube") && !videoUri.lowercase().contains("youtu.be"))))
+                (videoUri.startsWith("http") && (videoUri.lowercase().endsWith(".mp4") || videoUri.lowercase().endsWith(".mkv") || videoUri.lowercase().endsWith(".m3u8") || videoUri.lowercase().endsWith(".webm")))
             )
         }
 
@@ -138,32 +144,71 @@ fun VideoPlayerSimulator(
                                     setOnPreparedListener { mp ->
                                         mp.isLooping = true
                                     }
-                                    setVideoURI(Uri.parse(videoUri))
-                                    seekTo(currentPositionMs.toInt())
+                                    setOnErrorListener { _, _, _ ->
+                                        // Prevents standard error dialog and activity crash
+                                        true
+                                    }
+                                    try {
+                                        setVideoURI(Uri.parse(videoUri))
+                                        seekTo(currentPositionMs.toInt())
+                                    } catch (e: Exception) {
+                                        // safe fallback
+                                    }
                                 }
                             },
                             update = { videoView ->
                                 val tag = videoView.tag as? String
                                 if (tag != videoUri) {
-                                    videoView.setVideoURI(Uri.parse(videoUri))
-                                    videoView.seekTo(currentPositionMs.toInt())
+                                    try {
+                                        videoView.setVideoURI(Uri.parse(videoUri))
+                                        videoView.seekTo(currentPositionMs.toInt())
+                                        playStateRef.isPlaying = null
+                                    } catch (e: Exception) {
+                                        // safe fallback
+                                    }
                                     videoView.tag = videoUri
                                 }
 
                                 if (isPlaying) {
-                                    if (!videoView.isPlaying) {
-                                        videoView.start()
+                                    if (playStateRef.isPlaying != true) {
+                                        try {
+                                            videoView.start()
+                                            playStateRef.isPlaying = true
+                                        } catch (e: Exception) {
+                                            // Handle element recycle gracefully
+                                        }
                                     }
                                 } else {
-                                    if (videoView.isPlaying) {
-                                        videoView.pause()
+                                    if (playStateRef.isPlaying != false) {
+                                        try {
+                                            videoView.pause()
+                                            playStateRef.isPlaying = false
+                                        } catch (e: Exception) {
+                                            // Handle element recycle gracefully
+                                        }
                                     }
                                 }
 
-                                // Sync position
-                                val diff = Math.abs(videoView.currentPosition.toLong() - currentPositionMs)
-                                if (diff > 1200) {
-                                    videoView.seekTo(currentPositionMs.toInt())
+                                // Sync position with zero-IPC local change detection to avoid blocking UI main thread
+                                try {
+                                    val lastPos = lastPositionRef.value
+                                    val isJump = lastPos == 0L || 
+                                                 currentPositionMs < lastPos || 
+                                                 (currentPositionMs - lastPos) > 1500L
+                                    
+                                    if (!isPlaying || isJump) {
+                                        videoView.seekTo(currentPositionMs.toInt())
+                                    }
+                                    lastPositionRef.value = currentPositionMs
+                                } catch (e: Exception) {
+                                    // Handle element recycle gracefully
+                                }
+                            },
+                            onRelease = { videoView ->
+                                try {
+                                    videoView.stopPlayback()
+                                } catch (e: Exception) {
+                                    // safe fallback
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()

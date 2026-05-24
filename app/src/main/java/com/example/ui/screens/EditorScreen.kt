@@ -433,7 +433,7 @@ fun EditorScreen(
                                             }
                                         }
 
-                                        Divider(color = Color(0x158D8FA6), modifier = Modifier.padding(vertical = 4.dp))
+                                        HorizontalDivider(color = Color(0x158D8FA6), modifier = Modifier.padding(vertical = 4.dp))
 
                                         // Real Diagnostics Logs Node (Exposes tracking logic center coordinate directly)
                                         Text(
@@ -684,7 +684,7 @@ fun EditorScreen(
                         )
 
                         LinearProgressIndicator(
-                            progress = progress / 100f,
+                            progress = { progress / 100f },
                             color = PrimaryNeon,
                             trackColor = ContainerGrey,
                             modifier = Modifier

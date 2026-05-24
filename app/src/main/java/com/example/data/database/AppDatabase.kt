@@ -23,7 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "video_clipper_database"
                 )
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance
                 instance

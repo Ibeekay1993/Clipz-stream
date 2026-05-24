@@ -41,6 +41,9 @@ import androidx.compose.ui.platform.LocalContext
 import android.net.Uri
 import android.media.MediaMetadataRetriever
 import android.provider.OpenableColumns
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 fun getFileName(context: android.content.Context, uri: Uri): String {
     var result: String? = null
@@ -88,6 +91,7 @@ fun ImportScreen(
     var localVideoName by remember { mutableStateOf("") }
     var localVideoDuration by remember { mutableStateOf(0L) }
     
+    val scope = rememberCoroutineScope()
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -95,20 +99,26 @@ fun ImportScreen(
             localVideoUri = uri
             localVideoName = getFileName(context, uri)
             
-            val retriever = MediaMetadataRetriever()
-            localVideoDuration = try {
-                retriever.setDataSource(context, uri)
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                val durMs = durationStr?.toLong() ?: 60000L
-                durMs / 1000L
-            } catch (e: Exception) {
-                120L // fallback
-            } finally {
-                retriever.release()
-            }
-            
-            if (inputTitle.isEmpty()) {
-                inputTitle = localVideoName.substringBeforeLast(".")
+            scope.launch {
+                val durSec = withContext(Dispatchers.IO) {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val durMs = durationStr?.toLong() ?: 60000L
+                        durMs / 1000L
+                    } catch (e: Exception) {
+                        120L // fallback
+                    } finally {
+                        try {
+                            retriever.release()
+                        } catch (e: Exception) {}
+                    }
+                }
+                localVideoDuration = durSec
+                if (inputTitle.isEmpty()) {
+                    inputTitle = localVideoName.substringBeforeLast(".")
+                }
             }
         }
     }
@@ -122,18 +132,37 @@ fun ImportScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp)
         ) {
-            // Header Banner
+            // Header Banner with OPUS v2 brand badge
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Import Media Source",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SecondaryNeon)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "OPUS v2",
+                                color = PrimaryNeon,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Import Media Source",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Paste a long video web-link or tap one of our pre-configured studio podcasts to generate viral clips instantly.",
+                        text = "Paste a long video web-link or use pre-configured studio podcasts to generate viral clips instantly.",
                         fontSize = 13.sp,
                         color = TextMuted,
                         lineHeight = 18.sp
@@ -152,7 +181,7 @@ fun ImportScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(ContainerGrey)
+                            .background(SurfaceSlate)
                             .padding(4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -162,14 +191,14 @@ fun ImportScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(if (active) SurfaceSlate else Color.Transparent)
+                                    .background(if (active) ContainerGrey else Color.Transparent)
                                     .clickable { selectedImportTab = index }
-                                    .padding(vertical = 10.dp),
+                                    .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
                                         imageVector = pair.second,
@@ -193,10 +222,10 @@ fun ImportScreen(
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                            shape = RoundedCornerShape(28.dp),
+                            shape = RoundedCornerShape(24.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, Color(0x2B49454F), RoundedCornerShape(28.dp))
+                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(24.dp))
                         ) {
                             Column(
                                 modifier = Modifier
@@ -211,9 +240,9 @@ fun ImportScreen(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
+                                            .clip(RoundedCornerShape(8.dp))
                                             .background(SecondaryNeon)
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
                                     ) {
                                         Text(
                                             text = "AI POWERED",
@@ -225,42 +254,154 @@ fun ImportScreen(
                                     }
                                 }
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Link, contentDescription = "Link", tint = PrimaryNeon)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
                                         text = "Paste your link below",
                                         fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        fontWeight = FontWeight.Bold,
                                         color = TextWhite
+                                    )
+                                    Text(
+                                        text = "Valid YouTube, Twitch or online media address",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
                                     )
                                 }
 
                                 // URL Field
+                                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                                 OutlinedTextField(
                                     value = inputUrl,
                                     onValueChange = { inputUrl = it },
-                                    placeholder = { Text("https://www.youtube.com/watch?v=...", color = Color.Gray, fontSize = 13.sp) },
+                                    placeholder = { Text("https://www.youtube.com/watch?v=...", color = TextMuted, fontSize = 13.sp) },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = PrimaryNeon,
-                                        unfocusedBorderColor = Color(0x4F939099),
+                                        unfocusedBorderColor = Color(0x3B8D8FA6),
                                         focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color.White
+                                        unfocusedTextColor = Color.White,
+                                        focusedContainerColor = ContainerGrey,
+                                        unfocusedContainerColor = ContainerGrey
                                     ),
-                                    shape = RoundedCornerShape(16.dp),
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = {
+                                                try {
+                                                    val text = clipboardManager.getText()?.text
+                                                    if (!text.isNullOrBlank()) {
+                                                        inputUrl = text
+                                                    }
+                                                } catch (e: Exception) {
+                                                    // fail-safe
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ContentPaste,
+                                                contentDescription = "Paste Clipboard",
+                                                tint = PrimaryNeon,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("import_video_url_input")
                                 )
 
+                                // Autofill Helper Row
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Try instant test links:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMuted
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(ContainerGrey)
+                                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    inputUrl = "https://www.youtube.com/watch?v=AaMdXZMvT3w"
+                                                    inputTitle = "👾 Awesome Vibecoding & High-Fidelity AI Agents"
+                                                    inputDesc = "Learn how to architect, manage context, design processes, and avoid AI hallucinations with production-grade engineering discipline."
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircle,
+                                                    contentDescription = "Test YouTube",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "AaMdXZMvT3w (YouTube)",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(ContainerGrey)
+                                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    inputUrl = "https://github.com/Ibeekay1993/Clipz-stream"
+                                                    inputTitle = "🎮 Clipz Stream: Automated Live Highlights"
+                                                    inputDesc = "Seamless Twitch stream extraction and automated highlights. Integrates audio peaks, chat velocity, and visual action trackers for viral gameplay clipping."
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Code,
+                                                    contentDescription = "Test GitHub Link",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "Clipz-stream (GitHub)",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Toggle manual metadata
                                 Row(
                                     modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable { expandedAdvanced = !expandedAdvanced }
-                                        .padding(vertical = 4.dp),
+                                        .padding(vertical = 4.dp, horizontal = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
@@ -271,7 +412,7 @@ fun ImportScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "Advanced Video Specifics (Optional)",
+                                        text = "Advanced Video Specifications (Optional)",
                                         color = PrimaryNeon,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -292,13 +433,15 @@ fun ImportScreen(
                                         OutlinedTextField(
                                             value = inputTitle,
                                             onValueChange = { inputTitle = it },
-                                            placeholder = { Text("e.g., Tech Talk on Robotics", color = Color.Gray, fontSize = 13.sp) },
+                                            placeholder = { Text("e.g., Tech Talk on Robotics", color = TextMuted, fontSize = 13.sp) },
                                             singleLine = true,
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedBorderColor = PrimaryNeon,
-                                                unfocusedBorderColor = Color(0x4F939099),
+                                                unfocusedBorderColor = Color(0x3B8D8FA6),
                                                 focusedTextColor = Color.White,
-                                                unfocusedTextColor = Color.White
+                                                unfocusedTextColor = Color.White,
+                                                focusedContainerColor = ContainerGrey,
+                                                unfocusedContainerColor = ContainerGrey
                                             ),
                                             shape = RoundedCornerShape(12.dp),
                                             modifier = Modifier.fillMaxWidth()
@@ -313,13 +456,15 @@ fun ImportScreen(
                                         OutlinedTextField(
                                             value = inputDesc,
                                             onValueChange = { inputDesc = it },
-                                            placeholder = { Text("Paste transcript keywords or details...", color = Color.Gray, fontSize = 13.sp) },
+                                            placeholder = { Text("Paste transcript keywords or details...", color = TextMuted, fontSize = 13.sp) },
                                             minLines = 2,
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedBorderColor = PrimaryNeon,
-                                                unfocusedBorderColor = Color(0x4F939099),
+                                                unfocusedBorderColor = Color(0x3B8D8FA6),
                                                 focusedTextColor = Color.White,
-                                                unfocusedTextColor = Color.White
+                                                unfocusedTextColor = Color.White,
+                                                focusedContainerColor = ContainerGrey,
+                                                unfocusedContainerColor = ContainerGrey
                                             ),
                                             shape = RoundedCornerShape(12.dp),
                                             modifier = Modifier.fillMaxWidth()
@@ -345,8 +490,8 @@ fun ImportScreen(
                                     enabled = inputUrl.isNotEmpty(),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = PrimaryNeon,
-                                        contentColor = SecondaryNeon,
-                                        disabledContainerColor = PrimaryNeon.copy(alpha = 0.15f),
+                                        contentColor = Color.Black,
+                                        disabledContainerColor = Color(0x1F8D8FA6),
                                         disabledContentColor = TextMuted
                                     ),
                                     shape = RoundedCornerShape(16.dp),
@@ -355,9 +500,9 @@ fun ImportScreen(
                                         .height(52.dp)
                                         .testTag("import_video_submit_button")
                                 ) {
-                                    Icon(Icons.Default.Camera, contentDescription = "Gears", modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = "Gears", modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Bake Viral Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Bake Viral Clips", fontWeight = FontWeight.Black, fontSize = 14.sp)
                                 }
                             }
                         }
@@ -366,23 +511,23 @@ fun ImportScreen(
                         if (localVideoUri == null) {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
-                                shape = RoundedCornerShape(28.dp),
+                                shape = RoundedCornerShape(24.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { videoPickerLauncher.launch("video/*") }
-                                    .border(1.dp, Color(0x2B49454F), RoundedCornerShape(28.dp))
+                                    .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(24.dp))
                             ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .drawBehind {
                                             drawRoundRect(
-                                                color = Color(0x3FD0BCFF),
+                                                color = PrimaryNeon.copy(alpha = 0.3f),
                                                 style = Stroke(
                                                     width = 2.dp.toPx(),
                                                     pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
                                                 ),
-                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(28.dp.toPx())
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(24.dp.toPx())
                                             )
                                         }
                                         .padding(vertical = 40.dp, horizontal = 24.dp),
@@ -414,10 +559,10 @@ fun ImportScreen(
                             // Video detail view
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
-                                shape = RoundedCornerShape(28.dp),
+                                shape = RoundedCornerShape(24.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, Color(0x2B49454F), RoundedCornerShape(28.dp))
+                                    .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(24.dp))
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -478,13 +623,15 @@ fun ImportScreen(
                                     OutlinedTextField(
                                         value = inputDesc,
                                         onValueChange = { inputDesc = it },
-                                        placeholder = { Text("What happens in this video? Helps the AI structure dynamic short clips...", color = Color.Gray, fontSize = 13.sp) },
+                                        placeholder = { Text("What happens in this video? Helps the AI structure dynamic short clips...", color = TextMuted, fontSize = 13.sp) },
                                         minLines = 2,
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = PrimaryNeon,
-                                            unfocusedBorderColor = Color(0x4F939099),
+                                            unfocusedBorderColor = Color(0x3B8D8FA6),
                                             focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White
+                                            unfocusedTextColor = Color.White,
+                                            focusedContainerColor = ContainerGrey,
+                                            unfocusedContainerColor = ContainerGrey
                                         ),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.fillMaxWidth()
@@ -505,7 +652,7 @@ fun ImportScreen(
                                         },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = PrimaryNeon,
-                                            contentColor = SecondaryNeon
+                                            contentColor = Color.Black
                                         ),
                                         shape = RoundedCornerShape(16.dp),
                                         modifier = Modifier
@@ -514,7 +661,7 @@ fun ImportScreen(
                                     ) {
                                         Icon(Icons.Default.AutoAwesome, contentDescription = "Bake", modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Bake Viral Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("Bake Viral Clips", fontWeight = FontWeight.Black, fontSize = 14.sp)
                                     }
                                 }
                             }
@@ -720,7 +867,7 @@ fun ImportScreen(
 
                     // Progress Loader
                     LinearProgressIndicator(
-                        progress = progress / 100f,
+                        progress = { progress / 100f },
                         color = PrimaryNeon,
                         trackColor = ContainerGrey,
                         modifier = Modifier
