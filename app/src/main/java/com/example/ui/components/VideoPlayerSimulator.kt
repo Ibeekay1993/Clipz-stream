@@ -40,6 +40,9 @@ import com.example.ui.theme.SecondaryNeon
 import com.example.ui.theme.SurfaceSlate
 import androidx.compose.ui.viewinterop.AndroidView
 import android.net.Uri
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
 
 private class PositionRef(var value: Long)
 private class PlaybackStateRef(var isPlaying: Boolean? = null)
@@ -93,6 +96,13 @@ fun VideoPlayerSimulator(
                 videoUri.startsWith("file:") || 
                 (videoUri.startsWith("http") && (videoUri.lowercase().endsWith(".mp4") || videoUri.lowercase().endsWith(".mkv") || videoUri.lowercase().endsWith(".m3u8") || videoUri.lowercase().endsWith(".webm")))
             )
+        }
+
+        val youtubeId = remember(videoUri) {
+            extractYoutubeId(videoUri)
+        }
+        val isYoutube = remember(youtubeId) {
+            youtubeId != null
         }
 
         // Dynamic Speaker visualizer background reflecting video topic
@@ -212,6 +222,69 @@ fun VideoPlayerSimulator(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } else if (isYoutube && youtubeId != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .offset(x = ((0.5f - panOffset) * containerWidth.value * 0.5f).dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AndroidView(
+                            factory = { context ->
+                                WebView(context).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    settings.domStorageEnabled = true
+                                    webViewClient = WebViewClient()
+                                    webChromeClient = WebChromeClient()
+                                    
+                                    val startSecState = (currentPositionMs / 1000).toInt()
+                                    val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=1&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState"
+                                    loadUrl(embedUrl)
+                                }
+                            },
+                            update = { webView ->
+                                val lastPos = lastPositionRef.value
+                                val isJump = lastPos == 0L || 
+                                             currentPositionMs < lastPos || 
+                                             (currentPositionMs - lastPos) > 1500L
+                                             
+                                val tag = webView.tag as? String
+                                val autopl = if (isPlaying) 1 else 0
+                                if (tag != videoUri || isJump) {
+                                    val startSecState = (currentPositionMs / 1000).toInt()
+                                    val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
+                                    webView.loadUrl(embedUrl)
+                                    webView.tag = videoUri
+                                    lastPositionRef.value = currentPositionMs
+                                    playStateRef.isPlaying = isPlaying
+                                } else {
+                                    if (isPlaying) {
+                                        if (playStateRef.isPlaying != true) {
+                                            webView.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.play(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":\"\"}', '*'); }", null)
+                                            playStateRef.isPlaying = true
+                                        }
+                                    } else {
+                                        if (playStateRef.isPlaying != false) {
+                                            webView.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.pause(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":\"\"}', '*'); }", null)
+                                            playStateRef.isPlaying = false
+                                        }
+                                    }
+                                }
+                            },
+                            onRelease = { webView ->
+                                try {
+                                    webView.stopLoading()
+                                    webView.loadUrl("about:blank")
+                                } catch (e: Exception) {
+                                    // safe fallback
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
                         )
                     }
                 } else {
@@ -580,5 +653,26 @@ fun RenderDynamicCaptions(
                 )
             }
         }
+    }
+}
+
+private fun extractYoutubeId(url: String): String? {
+    return try {
+        val trimmed = url.trim()
+        if (trimmed.contains("youtu.be/")) {
+            trimmed.substringAfter("youtu.be/").substringBefore("?").substringBefore("/")
+        } else if (trimmed.contains("youtube.com/embed/")) {
+            trimmed.substringAfter("youtube.com/embed/").substringBefore("?").substringBefore("/")
+        } else if (trimmed.contains("/shorts/")) {
+            trimmed.substringAfter("/shorts/").substringBefore("?").substringBefore("/")
+        } else if (trimmed.contains("v=")) {
+            trimmed.substringAfter("v=").substringBefore("&")
+        } else if (trimmed.contains("/watch/")) {
+            trimmed.substringAfter("/watch/").substringBefore("?").substringBefore("/")
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
     }
 }
