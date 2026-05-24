@@ -189,7 +189,16 @@ object VideoProcessingEngine {
                     break
                 }
                 
-                bufferInfo.flags = extractor.sampleFlags
+                // Map MediaExtractor sample flags to appropriate MediaCodec buffer flags so that Android Lint passes successfully
+                val sampleFlags = extractor.sampleFlags
+                var codecFlags = 0
+                if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+                    codecFlags = codecFlags or MediaCodec.BUFFER_FLAG_KEY_FRAME
+                }
+                if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME) != 0) {
+                    codecFlags = codecFlags or MediaCodec.BUFFER_FLAG_PARTIAL_FRAME
+                }
+                bufferInfo.flags = codecFlags
                 val trackIndex = extractor.sampleTrackIndex
                 val mappedIndex = trackMap[trackIndex]
                 
