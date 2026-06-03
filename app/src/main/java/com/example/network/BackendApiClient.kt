@@ -31,7 +31,8 @@ data class BackendClipOutput(
     val endSec: Int,
     val viralScore: Int,
     val viralReason: String,
-    val captions: List<BackendWordCaption>?
+    val captions: List<BackendWordCaption>?,
+    val clipUrl: String? = null
 )
 
 @JsonClass(generateAdapter = true)

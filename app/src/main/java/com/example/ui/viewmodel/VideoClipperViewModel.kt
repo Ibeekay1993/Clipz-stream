@@ -295,6 +295,16 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                     }
                     
                     backendClipsList = backendResponse.clips.map { c ->
+                        val clipUrlRaw = c.clipUrl
+                        val resolvedUrl = if (clipUrlRaw != null) {
+                            if (clipUrlRaw.startsWith("/")) {
+                                "${BackendApiClient.getBaseUrl().removeSuffix("/")}$clipUrlRaw"
+                            } else {
+                                clipUrlRaw
+                            }
+                        } else {
+                            null
+                        }
                         Clip(
                             projectId = 0, // Assigned below on database write
                             title = c.title,
@@ -302,7 +312,9 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             endSec = c.endSec,
                             viralScore = c.viralScore,
                             viralReason = c.viralReason,
-                            captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList())
+                            captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList()),
+                            isExported = resolvedUrl != null,
+                            exportedFilePath = resolvedUrl
                         )
                     }
                     isBackendSuccess = true

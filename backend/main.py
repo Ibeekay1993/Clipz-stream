@@ -3,13 +3,16 @@ import re
 import tempfile
 import whisper
 import subprocess
-from fastapi import FastAPI, HTTPException
+import uuid
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from services.clipper import generate_clip
 
 app = FastAPI(
-    title="Clipz Stream Free Backend",
-    description="FREE AI YouTube Shorts/Clips subtitle generator and diarization segmentation backend without paid API keys."
+    title="WayinVideo Backend",
+    description="Physical AI YouTube Shorts subtitle generator and MoviePy segmentation backend."
 )
 
 # Enable CORS for cross-platform integration
@@ -20,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure persistent physical clips directory exists on the server to hold outputs
+CLIPS_DIR = "clips"
+os.makedirs(CLIPS_DIR, exist_ok=True)
 
 # Global model container loaded at startup/first call
 MODEL_INSTANCE = None
@@ -40,55 +47,71 @@ def health_check():
     return {
         "status": "ok", 
         "mode": "FREE - No paid API keys required",
-        "transcription_engine": "Whisper (Local CPU/GPU)"
+        "transcription_engine": "Whisper (Local CPU/GPU)",
+        "clipper_engine": "MoviePy with FFmpeg"
     }
 
-def download_audio(url: str, out_dir: str) -> str:
+@app.get("/clips/{filename}")
+async def get_clip(filename: str):
     """
-    Downloads high-fidelity audio stream from YouTube using yt-dlp,
-    saving download bandwidth and local processing latency.
+    Directly streams physically generated MP4 files back to clients/Android devices.
     """
-    output_template = os.path.join(out_dir, "audio.%(ext)s")
+    path = os.path.join(CLIPS_DIR, filename)
+    if os.path.exists(path):
+        return FileResponse(path, media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="Requested clip file not found on server.")
+
+def download_video(url: str, out_dir: str) -> str:
+    """
+    Downloads combined high-quality video/audio MP4 from YouTube using yt-dlp.
+    """
+    output_template = os.path.join(out_dir, "video.%(ext)s")
+    # Request standard mp4 format for effortless local decoding and seamless cropping
     cmd = [
         "yt-dlp",
-        "-x", "--audio-format", "mp3",
-        "--audio-quality", "0",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "--merge-output-format", "mp4",
         "-o", output_template,
         url
     ]
-    print(f"Running download: {' '.join(cmd)}")
+    print(f"[*] Running yt-dlp video download: {' '.join(cmd)}")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
-        raise Exception(f"yt-dlp download failed: {result.stderr}")
+        raise Exception(f"yt-dlp video download failed: {result.stderr}")
     
     for f in os.listdir(out_dir):
-        if f.startswith("audio."):
+        if f.startswith("video.") and f.endswith(".mp4"):
             return os.path.join(out_dir, f)
-    raise Exception("Audio file not resolved after successful download")
+            
+    # Fallback to any file starting with video
+    for f in os.listdir(out_dir):
+        if f.startswith("video."):
+            return os.path.join(out_dir, f)
+            
+    raise Exception("Video download completed successfully but output file could not be resolved.")
 
 @app.post("/api/process")
-async def process_video(request: ProcessRequest):
-    yt_url = request.url.strip()
-    num_clips = request.num_clips
+async def process_video(request_body: ProcessRequest, request: Request):
+    yt_url = request_body.url.strip()
+    num_clips = request_body.num_clips
     
     if not yt_url:
         raise HTTPException(status_code=400, detail="Invalid request: URL parameter cannot be empty.")
     
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            print(f"Initializing ingest for: {yt_url}")
-            audio_path = download_audio(yt_url, tmp_dir)
+            print(f"[*] Initializing video ingest for: {yt_url}")
+            video_path = download_video(yt_url, tmp_dir)
             
-            print("Beginning automatic local audio transcription via OpenAI Whisper...")
+            print("[*] Beginning automatic local video speech-transcription via OpenAI Whisper...")
             model = get_whisper_model()
-            result = model.transcribe(audio_path, word_timestamps=True)
+            result = model.transcribe(video_path, word_timestamps=True)
             
             segments = result.get("segments", [])
             all_words = []
             
             for seg in segments:
                 for w in seg.get("words", []):
-                    # Clean punctuation from strings for proper UI rendering
                     word_str = w.get("word", "").strip()
                     if word_str:
                         all_words.append({
@@ -98,26 +121,26 @@ async def process_video(request: ProcessRequest):
                         })
             
             if not all_words:
-                raise HTTPException(status_code=500, detail="Transcription completed but no frame-aligned words were extracted.")
+                raise HTTPException(status_code=500, detail="Transcription completed but no speech words were extracted.")
             
             video_duration_ms = all_words[-1]["endMs"]
             total_duration_sec = video_duration_ms / 1000.0
             
-            print(f"Completed speech mapping. Resolved {len(all_words)} words across {total_duration_sec:.2f} seconds.")
+            print(f"[+] Completed speech mapping. Resolved {len(all_words)} words over {total_duration_sec:.2f} seconds.")
             
-            # Segment Clips dynamically over the duration
             clips = []
-            clip_dur_ms = 30000  # 30-second target clips
-            
-            # Evenly space clip intervals across total time
+            clip_dur_ms = 30000  # 30-second clips
             interval_ms = video_duration_ms / max(1, num_clips + 1)
             hooks = ["secret", "must", "important", "best", "why", "how", "future", "learn", "hacks", "tips", "mindset", "goal"]
+            
+            # Resolve system base URL dynamically for client resource parsing
+            base_url = str(request.base_url)
             
             for i in range(num_clips):
                 target_start_ms = (i + 0.5) * interval_ms
                 target_end_ms = target_start_ms + clip_dur_ms
                 
-                # Slide window iteratively to lock on words
+                # Extract words fitting the interval
                 clip_words = [w for w in all_words if w["startMs"] >= target_start_ms and w["endMs"] <= target_end_ms]
                 if not clip_words:
                     clip_words = [w for w in all_words if abs(w["startMs"] - target_start_ms) < (clip_dur_ms * 1.5)]
@@ -125,33 +148,54 @@ async def process_video(request: ProcessRequest):
                 if not clip_words:
                     continue
                 
-                # Trim to exact word bounds
                 start_ms = clip_words[0]["startMs"]
                 end_ms = clip_words[-1]["endMs"]
                 
-                # Choose engaging subtitle fragment as visual title
-                five_words = " ".join([w["word"] for w in clip_words[:4]])
-                clean_title = re.sub(r'[^\w\s]', '', five_words).strip().capitalize()
+                start_sec = start_ms / 1000.0
+                end_sec = end_ms / 1000.0
+                
+                # Check bounds safety
+                if end_sec <= start_sec:
+                    end_sec = start_sec + 5.0
+                
+                # Render clean title text
+                four_words = " ".join([w["word"] for w in clip_words[:4]])
+                clean_title = re.sub(r'[^\w\s]', '', four_words).strip().capitalize()
                 
                 combined_text = " ".join([w["word"] for w in clip_words])
                 
-                # Grade highlights based on hooks density
-                base_score = 82 + (i * 4)
+                # Calculate highlight virality score
+                base_score = 83 + (i * 3)
                 lower_text = combined_text.lower()
                 for hook in hooks:
                     if hook in lower_text:
                         base_score += 2
                 
                 viral_score = min(max(base_score, 50), 99)
-                reason = f"High speech-rate focus segment capturing key concepts: '{clean_title}'. Perfect visual alignment. Optimal social media conversion hook."
+                reason = f"High speech-rate capture highlights valuable arguments: '{clean_title}'. Optimal vertical 9:16 layout formatting."
                 
+                # Generate a unique video clip filename
+                clip_filename = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
+                clip_filepath = os.path.join(CLIPS_DIR, clip_filename)
+                
+                # Run MoviePy to physically slice and write video clip file
+                try:
+                    generate_clip(video_path, start_sec, end_sec, clip_filepath)
+                    # Produce paths compatible with standard client protocols
+                    full_clip_url = f"{base_url.rstrip('/')}/clips/{clip_filename}"
+                except Exception as moviepy_err:
+                    print(f"[-] MoviePy generation failed for clip {i}: {moviepy_err}. Falling back to source stream link.")
+                    full_clip_url = yt_url
+                    
                 clips.append({
                     "title": f"🔥 {clean_title}...",
-                    "startSec": int(start_ms / 1000),
-                    "endSec": int(end_ms / 1000),
+                    "startSec": int(start_sec),
+                    "endSec": int(end_sec),
                     "viralScore": viral_score,
                     "viralReason": reason,
-                    "captions": clip_words
+                    "captions": clip_words,
+                    "clipUrl": full_clip_url,
+                    "clip_url": full_clip_url
                 })
             
             return {
@@ -161,11 +205,11 @@ async def process_video(request: ProcessRequest):
             }
             
         except Exception as e:
-            print(f"Server exception in processing pipeline: {str(e)}")
+            print(f"[-] Exception in service processing logic: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    # Pre-preload whisper model to speed up first client request
+    # Warm up Whisper model on startup so client requests don't lag or timeout on first load
     get_whisper_model()
     uvicorn.run(app, host="0.0.0.0", port=8000)
