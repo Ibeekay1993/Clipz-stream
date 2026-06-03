@@ -17,7 +17,7 @@ object SampleVideos {
         SampleVideo(
             title = " Lex Fridman & Joe Rogan: The Future of AI Coding",
             description = "A deep conversation on how AI coding agents are changing software engineering, productivity, and the future of tech startups.",
-            url = "sample_video_ai",
+            url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
             durationSeconds = 120,
             transcript = "AI is fundamentally shifting what it means to code. It is not about writing syntax anymore. You can just prompt your agent to build a full working project in seconds. The craft moves to architecture, systems design, and deeply understanding user intent. If you can describe it, the AI can build it. The feedback loops are getting so fast that you can iterate and deploy a production-ready application within a single afternoon. It unlocks creativity in a way we have never seen before.",
             mockClips = listOf(
@@ -86,7 +86,7 @@ object SampleVideos {
         SampleVideo(
             title = "📈 Unlocking Your 100% Potential",
             description = "A powerful, high-energy motivational speech on building daily routines, beating procrastination, and mental focus.",
-            url = "sample_video_routine",
+            url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
             durationSeconds = 90,
             transcript = "Procrastination is not a time management problem. It is an emotional regulation problem. When you avoid a task, you are avoiding the bad feeling that task gives you. Work through that first 5 minutes of discomfort. That is where progress happens. Consistency over intensity always wins.",
             mockClips = listOf(
@@ -176,7 +176,7 @@ object SampleVideos {
         SampleVideo(
             title = "🎮 Clipz Stream: Automated Live Highlights",
             description = "Seamless Twitch stream extraction and automated highlights. Integrates audio peaks, chat velocity, and visual action trackers for viral gameplay clipping.",
-            url = "https://github.com/Ibeekay1993/Clipz-stream",
+            url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
             durationSeconds = 180,
             transcript = "Clipz-Stream is designed to solve the manual highlight clipping grind. By tracking Twitch chat velocity, high frequency visual frames, and microphone volume peaks, the platform automatically crops the perfect epic clutch plays, hilarious fail states, and legendary reactions to ready-to-share 9:16 vertical shorts.",
             mockClips = listOf(
