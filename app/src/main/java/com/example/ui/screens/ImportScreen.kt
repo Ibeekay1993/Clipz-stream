@@ -145,20 +145,6 @@ fun ImportScreen(
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(SecondaryNeon)
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "OPUS v2",
-                                color = PrimaryNeon,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -233,26 +219,7 @@ fun ImportScreen(
                                     .padding(24.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                // AI Powered Badge
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(SecondaryNeon)
-                                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    ) {
-                                        Text(
-                                            text = "AI POWERED",
-                                            color = PrimaryNeon,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.sp
-                                        )
-                                    }
-                                }
+                                // AI Powered Features Enabled
 
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
@@ -502,7 +469,7 @@ fun ImportScreen(
                                 ) {
                                     Icon(Icons.Default.AutoAwesome, contentDescription = "Gears", modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Bake Viral Clips", fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                    Text("Import and Create Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
                         }
@@ -553,6 +520,41 @@ fun ImportScreen(
                                         textAlign = TextAlign.Center,
                                         lineHeight = 15.sp
                                     )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0x1400FF87)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, PrimaryNeon.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = "info",
+                                        tint = PrimaryNeon,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "On-Device Video Clipper",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "To test real, physical video frame splitting and multiplexer trimming locally on your phone, choose any real MP4/MKV video here! Web links and presets use Cloud AI pipeline simulations.",
+                                            fontSize = 11.sp,
+                                            color = TextMuted,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -661,55 +663,10 @@ fun ImportScreen(
                                     ) {
                                         Icon(Icons.Default.AutoAwesome, contentDescription = "Bake", modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Bake Viral Clips", fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                        Text("Import and Create Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-
-            // API Status Check Panel
-            item {
-                val apiKey = BuildConfig.GEMINI_API_KEY
-                val isKeyActive = apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY"
-                
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = if (isKeyActive) PrimaryNeon.copy(alpha = 0.1f) else Color(0x15FFB4AB)),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isKeyActive) Icons.Default.CheckCircle else Icons.Default.Info,
-                            contentDescription = "Status Key",
-                            tint = if (isKeyActive) PrimaryNeon else RatingLow,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (isKeyActive) "GEMINI ENGINE ACTIVE" else "DUMMY MODE / PROTOTYPE",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isKeyActive) PrimaryNeon else RatingLow,
-                                letterSpacing = 0.5.sp
-                            )
-                            Text(
-                                text = if (isKeyActive) 
-                                    "Connected to Gemini-3.5-Flash for analyzing viral hooks and transcribing clips dynamically."
-                                else 
-                                    "No Gemini key configured in Secrets panel. Using high-fidelity local templates to simulate clip extractions.",
-                                fontSize = 10.sp,
-                                color = TextMuted,
-                                lineHeight = 14.sp
-                            )
                         }
                     }
                 }

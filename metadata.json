@@ -1,6 +1,6 @@
 {
-  "name": "AI Video Clipper",
-  "description": "Cut long videos into viral, short clips with smart subtitles, custom crop ratios, and AI-powered highlight selection like Opus and Nexus Clip.",
+  "name": "WayinVideo",
+  "description": "Find and cut viral, high-retention short vertical videos easily from wide-angle streams, podcasts, and device uploads.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

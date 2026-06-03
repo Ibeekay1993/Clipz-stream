@@ -11,8 +11,12 @@ import com.example.data.model.SampleVideo
 import com.example.data.model.SampleVideos
 import com.example.data.model.WordTimestamp
 import com.example.data.repository.VideoRepository
+import android.util.Log
 import com.example.network.GeminiApiClient
 import com.example.network.GeminiClipOutput
+import com.example.network.BackendApiClient
+import com.example.network.BackendProcessRequest
+import com.example.network.SupabaseApiClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -89,6 +93,13 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
     val isPlaying = MutableStateFlow(false)
     val currentPositionMs = MutableStateFlow(0L)
 
+    // Supabase cloud credentials and synchronisation states
+    val supabaseAnonKey = MutableStateFlow("")
+    val isSupabaseSynced = MutableStateFlow<Boolean?>(null)
+
+    // Interactive Moments search query like WayinVideo
+    val searchQuery = MutableStateFlow("")
+
     // Background Processing states
     private val _loadingState = MutableStateFlow<LoadingState>(LoadingState.Idle)
     val loadingState: StateFlow<LoadingState> = _loadingState.asStateFlow()
@@ -102,11 +113,11 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         // Ticker loop with smooth cinematic face tracking lerp
         viewModelScope.launch {
             while (true) {
-                delay(50)
+                delay(100)
                 if (isPlaying.value) {
                     val startLimitMs = trimStartSec.value * 1000L
                     val endLimitMs = trimEndSec.value * 1000L
-                    val nextPos = currentPositionMs.value + 50
+                    val nextPos = currentPositionMs.value + 100
                     if (nextPos >= endLimitMs) {
                         currentPositionMs.value = startLimitMs // Loop back to start
                     } else {
@@ -153,6 +164,12 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         isPlaying.value = false
     }
 
+    // Resets active clip selection to return to moments grid dashboard
+    fun deselectClip() {
+        _selectedClip.value = null
+        isPlaying.value = false
+    }
+
     // Update settings
     fun updateAspectRatio(ratio: String) {
         aspectRatio.value = ratio
@@ -173,6 +190,10 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun updatePanOffset(offset: Float) {
+        panOffset.value = offset
+    }
+
+    fun commitPanOffset(offset: Float) {
         panOffset.value = offset
         _selectedClip.value?.let { clip ->
             viewModelScope.launch {
@@ -250,71 +271,117 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var fetchedWords: List<WordTimestamp>? = null
             var dynamicTimeline: Map<Int, Float>? = null
 
-            if (matchedPreset == null) {
-                val extractedId = extractYoutubeId(rawUrl)
-                if (extractedId != null) {
-                    _loadingState.value = LoadingState.Analyzing(8, "yt-dlp: Resolving remote stream metadata...", "")
-                    val fetchedTitle = fetchYoutubeTitle(rawUrl)
-                    if (fetchedTitle != null) {
-                        finalTitle = fetchedTitle
-                        finalDesc = "Automated ingest of YouTube video: $fetchedTitle"
+            var isBackendSuccess = false
+            var backendClipsList: List<Clip>? = null
+
+            // Check if call should go to our custom FastAPI Render backend first
+            if (matchedPreset == null && rawUrl.startsWith("http")) {
+                _loadingState.value = LoadingState.Analyzing(5, "Render API: Routing stream configuration matrix to cloud host...", "")
+                try {
+                    val backendResponse = withContext(Dispatchers.IO) {
+                        BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = 3))
+                    }
+                    _loadingState.value = LoadingState.Analyzing(50, "Render API: Local speech engine transcription completed!", "")
+                    
+                    finalDuration = backendResponse.duration.toLong()
+                    finalTitle = if (title.isNotEmpty()) title else "Render Ingest: " + rawUrl.substringAfterLast("/").substringBefore("?").take(15)
+                    finalDesc = "Automated Render process for $rawUrl"
+                    
+                    val allWordCaptions = backendResponse.clips.flatMap { it.captions ?: emptyList() }
+                    finalTranscript = if (allWordCaptions.isNotEmpty()) {
+                        allWordCaptions.joinToString(" ") { it.word }
+                    } else {
+                        "Deep speech transcription completed successfully."
                     }
                     
-                    _loadingState.value = LoadingState.Analyzing(18, "WhisperX: Compiling frame-aligned audio streams...", "")
-                    val wordsList = fetchYoutubeTranscript(extractedId)
-                    if (wordsList != null && wordsList.isNotEmpty()) {
-                        fetchedWords = wordsList
-                        finalTranscript = wordsList.joinToString(" ") { it.word }
-                        finalDuration = (wordsList.last().endMs / 1000L).coerceAtLeast(120)
-                        
-                        // Generate beautifully drifting camera focuses over speech intervals
-                        val trackTimeline = mutableMapOf<Int, Float>()
-                        for (sec in 0..finalDuration.toInt() step 5) {
-                            val shift = if (sec % 10 == 0) 0.47f else if (sec % 15 == 0) 0.53f else 0.50f
-                            trackTimeline[sec] = shift
-                        }
-                        dynamicTimeline = trackTimeline
-                    } else {
-                        // Default transcript representation if video is un-subtitled
-                        finalTranscript = "Welcome to this episode where we talk about $finalTitle. This is a highly requested topic. In this short visual hook, we discuss the core framework, analyze the real-world strategy, explore key practical tips and deliver direct takeaways you can implement immediately. Let's dive deep into this."
-                        finalDuration = 120
+                    backendClipsList = backendResponse.clips.map { c ->
+                        Clip(
+                            projectId = 0, // Assigned below on database write
+                            title = c.title,
+                            startSec = c.startSec,
+                            endSec = c.endSec,
+                            viralScore = c.viralScore,
+                            viralReason = c.viralReason,
+                            captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList())
+                        )
                     }
+                    isBackendSuccess = true
+                } catch (e: Exception) {
+                    Log.e("BackendApiClient", "Render client connection failed. Falling back gracefully. Exception: ${e.message}", e)
+                    _loadingState.value = LoadingState.Analyzing(10, "Render API Offline: ${e.localizedMessage}. Bootstrapping local transcription engines...", "")
+                    delay(3000)
                 }
             }
 
-            // Step 1: Real stream/file presence check
-            _loadingState.value = LoadingState.Analyzing(12, "yt-dlp: Stream validation and metadata alignment check...", "")
-            val videoUri = Uri.parse(finalSourceUrl)
-            val isReal = finalSourceUrl.isNotEmpty() && (
-                finalSourceUrl.startsWith("content:") || 
-                finalSourceUrl.startsWith("file:") ||
-                (finalSourceUrl.startsWith("http") && (finalSourceUrl.lowercase().endsWith(".mp4") || finalSourceUrl.lowercase().endsWith(".mkv")))
-            )
-            delay(600)
+            // Fallback to traditional local/Gemini flow if Backend failed or Preset matched
+            var apiClipsResponse: com.example.network.GeminiClipsListResponse? = null
+            if (!isBackendSuccess) {
+                if (matchedPreset == null) {
+                    val extractedId = extractYoutubeId(rawUrl)
+                    if (extractedId != null) {
+                        _loadingState.value = LoadingState.Analyzing(8, "yt-dlp: Resolving remote stream metadata...", "")
+                        val fetchedTitle = fetchYoutubeTitle(rawUrl)
+                        if (fetchedTitle != null) {
+                            finalTitle = fetchedTitle
+                            finalDesc = "Automated ingest of YouTube video: $fetchedTitle"
+                        }
+                        
+                        _loadingState.value = LoadingState.Analyzing(18, "WhisperX: Compiling frame-aligned audio streams...", "")
+                        val wordsList = fetchYoutubeTranscript(extractedId)
+                        if (wordsList != null && wordsList.isNotEmpty()) {
+                            fetchedWords = wordsList
+                            finalTranscript = wordsList.joinToString(" ") { it.word }
+                            finalDuration = (wordsList.last().endMs / 1000L).coerceAtLeast(120)
+                            
+                            // Generate beautifully drifting camera focuses over speech intervals
+                            val trackTimeline = mutableMapOf<Int, Float>()
+                            for (sec in 0..finalDuration.toInt() step 5) {
+                                val shift = if (sec % 10 == 0) 0.47f else if (sec % 15 == 0) 0.53f else 0.50f
+                                trackTimeline[sec] = shift
+                            }
+                            dynamicTimeline = trackTimeline
+                        } else {
+                            // Default transcript representation if video is un-subtitled
+                            finalTranscript = "Welcome to this episode where we talk about $finalTitle. This is a highly requested topic. In this short visual hook, we discuss the core framework, analyze the real-world strategy, explore key practical tips and deliver direct takeaways you can implement immediately. Let's dive deep into this."
+                            finalDuration = 120
+                        }
+                    }
+                }
 
-            // Step 2: Speech-to-Text Transcription with WhisperX
-            _loadingState.value = LoadingState.Analyzing(
-                28, 
-                "WhisperX: Compiling frame-aligned audio streams...", 
-                finalTranscript.take(120) + "..."
-            )
-            delay(1000)
-            
-            _loadingState.value = LoadingState.Analyzing(
-                38, 
-                "Diarization: Segmenting multi-speaker audio matrices...", 
-                "...extracting visual features..."
-            )
-            delay(800)
+                // Step 1: Real stream/file presence check
+                _loadingState.value = LoadingState.Analyzing(12, "yt-dlp: Stream validation and metadata alignment check...", "")
+                val videoUri = Uri.parse(finalSourceUrl)
+                val isReal = finalSourceUrl.isNotEmpty() && (
+                    finalSourceUrl.startsWith("content:") || 
+                    finalSourceUrl.startsWith("file:") ||
+                    (finalSourceUrl.startsWith("http") && (finalSourceUrl.lowercase().endsWith(".mp4") || finalSourceUrl.lowercase().endsWith(".mkv")))
+                )
+                delay(600)
 
-            // Step 3: Call Gemini API Clip Scoring
-            _loadingState.value = LoadingState.Analyzing(
-                55, 
-                "Gemini: Parsing hooks, speech peaks, and sentiment distributions...", 
-                ""
-            )
-            val apiClipsResponse = withContext(Dispatchers.IO) {
-                GeminiApiClient.generateShortClips(finalTitle, finalDesc, finalTranscript, finalDuration)
+                // Step 2: Speech-to-Text Transcription with WhisperX
+                _loadingState.value = LoadingState.Analyzing(
+                    28, 
+                    "WhisperX: Compiling frame-aligned audio streams...", 
+                    finalTranscript.take(120) + "..."
+                )
+                delay(1000)
+                
+                _loadingState.value = LoadingState.Analyzing(
+                    38, 
+                    "Diarization: Segmenting multi-speaker audio matrices...", 
+                    "...extracting visual features..."
+                )
+                delay(800)
+
+                // Step 3: Call Gemini API Clip Scoring
+                _loadingState.value = LoadingState.Analyzing(
+                    55, 
+                    "Gemini: Parsing hooks, speech peaks, and sentiment distributions...", 
+                    ""
+                )
+                apiClipsResponse = withContext(Dispatchers.IO) {
+                    GeminiApiClient.generateShortClips(finalTitle, finalDesc, finalTranscript, finalDuration)
+                }
             }
 
             // Step 4: True face tracking analysis using our VideoProcessingEngine
@@ -346,6 +413,94 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 else -> emptyMap()
             }
 
+            var localSourcePath = finalSourceUrl
+            val cleanUrl = finalSourceUrl.lowercase().substringBefore("?")
+            val isHttpVideo = finalSourceUrl.startsWith("http") && (
+                cleanUrl.endsWith(".mp4") || 
+                cleanUrl.endsWith(".mkv") || 
+                cleanUrl.contains("video") ||
+                cleanUrl.endsWith(".webm") ||
+                cleanUrl.endsWith(".mov") ||
+                cleanUrl.endsWith(".3gp")
+            )
+            
+            val isPreset = finalSourceUrl.lowercase().contains("sample_video") || 
+                           finalSourceUrl.lowercase().contains("AaMdXZMvT3w".lowercase()) || 
+                           finalSourceUrl.lowercase().contains("Clipz-stream".lowercase())
+
+            if (isHttpVideo && !isPreset) {
+                _loadingState.value = LoadingState.Analyzing(3, "Downloading real source video file...", "")
+                try {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    val request = Request.Builder().url(finalSourceUrl).build()
+                    val response = withContext(Dispatchers.IO) { client.newCall(request).execute() }
+                    if (response.isSuccessful) {
+                        val body = response.body
+                        if (body != null) {
+                            val contentLength = body.contentLength()
+                            val localFile = File(
+                                getApplication<Application>().getExternalFilesDir(null),
+                                "downloaded_${System.currentTimeMillis()}.mp4"
+                            )
+                            localFile.parentFile?.mkdirs()
+                            
+                            withContext(Dispatchers.IO) {
+                                body.byteStream().use { inputStream ->
+                                    FileOutputStream(localFile).use { outputStream ->
+                                        val buffer = ByteArray(128 * 1024)
+                                        var totalBytesRead = 0L
+                                        var bytesRead: Int
+                                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                            outputStream.write(buffer, 0, bytesRead)
+                                            totalBytesRead += bytesRead
+                                            if (contentLength > 0) {
+                                                val progressPct = (totalBytesRead * 100 / contentLength).toInt()
+                                                val mappedProgress = 3 + (progressPct * 0.15f).toInt().coerceIn(0, 15)
+                                                _loadingState.value = LoadingState.Analyzing(
+                                                    mappedProgress,
+                                                    "Downloading real source video: ${totalBytesRead / (1024 * 1024)}MB / ${contentLength / (1024 * 1024)}MB ($progressPct%)",
+                                                    ""
+                                                )
+                                            } else {
+                                                _loadingState.value = LoadingState.Analyzing(
+                                                    10,
+                                                    "Downloading real source video: ${totalBytesRead / (1024 * 1024)}MB done (unknown size)...",
+                                                    ""
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (localFile.exists() && localFile.length() > 1000) {
+                                localSourcePath = localFile.absolutePath
+                                Log.d("VideoClipperViewModel", "Downloaded HTTP source video successfully to: $localSourcePath")
+                            }
+                        }
+                    } else {
+                        Log.e("VideoClipperViewModel", "HTTP Request to pull video failed. Status: ${response.code}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("VideoClipperViewModel", "Failed to download remote HTTP source video: ${e.message}", e)
+                }
+            }
+
+            val videoUri = if (localSourcePath.startsWith("/")) {
+                Uri.fromFile(File(localSourcePath))
+            } else {
+                Uri.parse(localSourcePath)
+            }
+            
+            val isReal = localSourcePath.isNotEmpty() && (
+                localSourcePath.startsWith("content:") || 
+                localSourcePath.startsWith("file:") ||
+                localSourcePath.startsWith("/") ||
+                (localSourcePath.startsWith("http") && (localSourcePath.lowercase().endsWith(".mp4") || localSourcePath.lowercase().endsWith(".mkv")))
+            )
+
             if (isReal) {
                 try {
                     faceTimeline = com.example.processor.VideoProcessingEngine.analyzeFaceTimeline(
@@ -366,13 +521,13 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 faceTimeline = presetTimeline
             }
 
-            _loadingState.value = LoadingState.Analyzing(92, "Supabase: Packaging metadata structures for Vault storage...", "")
+            _loadingState.value = LoadingState.Analyzing(92, "Local Metadata alignment completed...", "")
             delay(500)
 
             // Database Save
             val project = Project(
                 title = finalTitle,
-                sourceUrl = finalSourceUrl,
+                sourceUrl = localSourcePath,
                 thumbnailUrl = if (finalSourceUrl.contains("sample_video_routine") || finalTitle.contains("Potential")) "routine" else "ai",
                 durationSeconds = finalDuration,
                 transcript = finalTranscript
@@ -380,7 +535,9 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             
             val projectId = repository.insertProject(project)
             
-            val finalClips = if (apiClipsResponse != null && apiClipsResponse.clips.isNotEmpty()) {
+            val finalClips = if (isBackendSuccess && backendClipsList != null) {
+                backendClipsList.map { it.copy(projectId = projectId.toInt()) }
+            } else if (apiClipsResponse != null && apiClipsResponse.clips.isNotEmpty()) {
                 apiClipsResponse.clips.map { c ->
                     Clip(
                         projectId = projectId.toInt(),
@@ -501,12 +658,95 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         
         viewModelScope.launch {
             _exportState.value = ExportState.Exporting(0, "Initiating render configuration...")
-            val videoUri = Uri.parse(project.sourceUrl)
             
-            val isReal = project.sourceUrl.isNotEmpty() && (
-                project.sourceUrl.startsWith("content:") || 
-                project.sourceUrl.startsWith("file:") ||
-                (project.sourceUrl.startsWith("http") && (project.sourceUrl.lowercase().endsWith(".mp4") || project.sourceUrl.lowercase().endsWith(".mkv")))
+            var localFileUrl = project.sourceUrl
+            val cleanUrl = project.sourceUrl.lowercase().substringBefore("?")
+            val isHttpVideo = project.sourceUrl.startsWith("http") && (
+                cleanUrl.endsWith(".mp4") || 
+                cleanUrl.endsWith(".mkv") || 
+                cleanUrl.contains("video") ||
+                cleanUrl.endsWith(".webm") ||
+                cleanUrl.endsWith(".mov") ||
+                cleanUrl.endsWith(".3gp")
+            )
+            
+            val isPreset = project.sourceUrl.lowercase().contains("sample_video") || 
+                           project.sourceUrl.lowercase().contains("AaMdXZMvT3w".lowercase()) || 
+                           project.sourceUrl.lowercase().contains("Clipz-stream".lowercase())
+            
+            if (isHttpVideo && !isPreset) {
+                _exportState.value = ExportState.Exporting(2, "Pulling real video from link to local storage...")
+                try {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    val request = Request.Builder().url(project.sourceUrl).build()
+                    val response = withContext(Dispatchers.IO) { client.newCall(request).execute() }
+                    if (response.isSuccessful) {
+                        val body = response.body
+                        if (body != null) {
+                            val contentLength = body.contentLength()
+                            val localFile = File(
+                                getApplication<Application>().getExternalFilesDir(null),
+                                "downloaded_${System.currentTimeMillis()}.mp4"
+                            )
+                            localFile.parentFile?.mkdirs()
+                            
+                            withContext(Dispatchers.IO) {
+                                body.byteStream().use { inputStream ->
+                                    FileOutputStream(localFile).use { outputStream ->
+                                        val buffer = ByteArray(128 * 1024)
+                                        var totalBytesRead = 0L
+                                        var bytesRead: Int
+                                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                            outputStream.write(buffer, 0, bytesRead)
+                                            totalBytesRead += bytesRead
+                                            if (contentLength > 0) {
+                                                val progressPct = (totalBytesRead * 100 / contentLength).toInt()
+                                                val mappedProgress = 2 + (progressPct * 0.18f).toInt().coerceIn(0, 18)
+                                                _exportState.value = ExportState.Exporting(
+                                                    mappedProgress,
+                                                    "Pulling real video: ${totalBytesRead / (1024 * 1024)}MB / ${contentLength / (1024 * 1024)}MB ($progressPct%)"
+                                                )
+                                            } else {
+                                                _exportState.value = ExportState.Exporting(
+                                                    10,
+                                                    "Pulling real video: ${totalBytesRead / (1024 * 1024)}MB done..."
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (localFile.exists() && localFile.length() > 1000) {
+                                localFileUrl = localFile.absolutePath
+                                // Save locally in DB so future exports / plays are instantaneous!
+                                val updatedProject = project.copy(sourceUrl = localFileUrl)
+                                repository.insertProject(updatedProject)
+                                _selectedProject.value = updatedProject
+                                Log.d("VideoClipperViewModel", "Downloaded HTTP source video successfully on-the-fly to: $localFileUrl")
+                            }
+                        }
+                    } else {
+                        Log.e("VideoClipperViewModel", "HTTP Request to pull video failed. Status: ${response.code}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("VideoClipperViewModel", "Failed to pull remote raw link video: ${e.message}", e)
+                }
+            }
+
+            val videoUri = if (localFileUrl.startsWith("/")) {
+                Uri.fromFile(File(localFileUrl))
+            } else {
+                Uri.parse(localFileUrl)
+            }
+            
+            val isReal = localFileUrl.isNotEmpty() && (
+                localFileUrl.startsWith("content:") || 
+                localFileUrl.startsWith("file:") ||
+                localFileUrl.startsWith("/") ||
+                (localFileUrl.startsWith("http") && (localFileUrl.lowercase().endsWith(".mp4") || localFileUrl.lowercase().endsWith(".mkv")))
             )
 
             val destFile = File(
@@ -784,5 +1024,50 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         }
 
         return clips
+    }
+
+    /**
+     * Publishes a project and its nested segmented clips into our Supabase cloud database
+     */
+    fun syncCurrentProjectToSupabase() {
+        val project = _selectedProject.value ?: return
+        val clips = projectClips.value
+        val anonKey = supabaseAnonKey.value.trim()
+
+        if (anonKey.isBlank()) {
+            _loadingState.value = LoadingState.Error("Supabase error: Anon Key is needed. Set it down below on the panel.")
+            viewModelScope.launch {
+                delay(2000)
+                _loadingState.value = LoadingState.Idle
+            }
+            return
+        }
+
+        _loadingState.value = LoadingState.Analyzing(0, "Supabase: Handshaking with cloud Rest service...", "")
+        viewModelScope.launch {
+            try {
+                _loadingState.value = LoadingState.Analyzing(35, "Supabase: Transmitting root project header document...", "")
+                val isSuccess = withContext(Dispatchers.IO) {
+                    SupabaseApiClient.syncToSupabase(anonKey, project, clips)
+                }
+                delay(600)
+                if (isSuccess) {
+                    isSupabaseSynced.value = true
+                    _loadingState.value = LoadingState.Success
+                    delay(1200)
+                    _loadingState.value = LoadingState.Idle
+                } else {
+                    isSupabaseSynced.value = false
+                    _loadingState.value = LoadingState.Error("Supabase Error: structural sync rejected. Check table structures & permissions.")
+                    delay(2500)
+                    _loadingState.value = LoadingState.Idle
+                }
+            } catch (e: Exception) {
+                isSupabaseSynced.value = false
+                _loadingState.value = LoadingState.Error("Supabase network error: " + e.localizedMessage)
+                delay(2500)
+                _loadingState.value = LoadingState.Idle
+            }
+        }
     }
 }

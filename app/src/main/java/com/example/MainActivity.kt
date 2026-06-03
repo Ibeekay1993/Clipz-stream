@@ -171,34 +171,18 @@ fun TopBarBranding() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.GraphicEq,
+                        imageVector = Icons.Default.PlayArrow,
                         contentDescription = "App Logo",
-                        tint = SecondaryNeon,
+                        tint = Color.Black,
                         modifier = Modifier.size(20.dp)
                     )
                 }
 
                 Text(
-                    text = "AI Video Clipper",
+                    text = "WayinVideo",
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Black,
                     color = TextWhite,
-                    letterSpacing = 0.5.sp
-                )
-            }
-
-            // High processing rate theme label
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SecondaryNeon)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "OPUS v2",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryNeon,
                     letterSpacing = 0.5.sp
                 )
             }

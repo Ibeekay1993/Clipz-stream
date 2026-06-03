@@ -59,7 +59,8 @@ fun VideoPlayerSimulator(
     panOffset: Float, // 0f to 1f horizontal center shifted
     captions: List<WordTimestamp>,
     videoUri: String = "",
-    onPanOffsetChanged: (Float) -> Unit
+    onPanOffsetChanged: (Float) -> Unit,
+    onPanOffsetCommit: (Float) -> Unit = {}
 ) {
     // Waveform scale animation
     val infiniteTransition = rememberInfiniteTransition(label = "playerWave")
@@ -79,6 +80,7 @@ fun VideoPlayerSimulator(
 
     val lastPositionRef = remember { PositionRef(0L) }
     val playStateRef = remember { PlaybackStateRef() }
+    val lastSeekTimeRef = remember { PositionRef(0L) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -90,19 +92,46 @@ fun VideoPlayerSimulator(
         val containerWidth = maxWidth
         val containerHeight = maxHeight
 
-        val isRealVideo = remember(videoUri) {
-            videoUri.isNotEmpty() && (
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var videoViewLoadFailed by remember(videoUri) { mutableStateOf(false) }
+        var webViewLoadFailed by remember(videoUri) { mutableStateOf(false) }
+
+        val isWebViewAvailable = remember(context) {
+            try {
+                android.webkit.CookieManager.getInstance()
+                Class.forName("android.webkit.WebView")
+                true
+            } catch (t: Throwable) {
+                false
+            }
+        }
+
+        val isRealVideo = remember(videoUri, videoViewLoadFailed) {
+            videoUri.isNotEmpty() && !videoViewLoadFailed && (
                 videoUri.startsWith("content:") || 
                 videoUri.startsWith("file:") || 
+                videoUri.startsWith("/") || 
                 (videoUri.startsWith("http") && (videoUri.lowercase().endsWith(".mp4") || videoUri.lowercase().endsWith(".mkv") || videoUri.lowercase().endsWith(".m3u8") || videoUri.lowercase().endsWith(".webm")))
             )
+        }
+
+        val resolvedUri = remember(videoUri) {
+            try {
+                if (videoUri.startsWith("/")) {
+                    Uri.fromFile(java.io.File(videoUri))
+                } else {
+                    Uri.parse(videoUri)
+                }
+            } catch (e: Exception) {
+                Uri.EMPTY
+            }
         }
 
         val youtubeId = remember(videoUri) {
             extractYoutubeId(videoUri)
         }
-        val isYoutube = remember(youtubeId) {
-            youtubeId != null
+        val isYoutube = remember(youtubeId, isWebViewAvailable, webViewLoadFailed) {
+            youtubeId != null && isWebViewAvailable && !webViewLoadFailed
         }
 
         // Dynamic Speaker visualizer background reflecting video topic
@@ -150,75 +179,89 @@ fun VideoPlayerSimulator(
                     ) {
                         AndroidView(
                             factory = { context ->
-                                android.widget.VideoView(context).apply {
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = true
+                                try {
+                                    android.widget.VideoView(context).apply {
+                                        setOnPreparedListener { mp ->
+                                            mp.isLooping = true
+                                        }
+                                        setOnErrorListener { _, _, _ ->
+                                            // Prevents standard error dialog and activity crash
+                                            true
+                                        }
+                                        try {
+                                            setVideoURI(resolvedUri)
+                                            seekTo(currentPositionMs.toInt())
+                                        } catch (e: Exception) {
+                                            // safe fallback
+                                        }
                                     }
-                                    setOnErrorListener { _, _, _ ->
-                                        // Prevents standard error dialog and activity crash
-                                        true
-                                    }
-                                    try {
-                                        setVideoURI(Uri.parse(videoUri))
-                                        seekTo(currentPositionMs.toInt())
-                                    } catch (e: Exception) {
-                                        // safe fallback
-                                    }
+                                } catch (t: Throwable) {
+                                    android.util.Log.e("VideoPlayerSimulator", "VideoView instantiation failed", t)
+                                    videoViewLoadFailed = true
+                                    android.view.View(context)
                                 }
                             },
                             update = { videoView ->
-                                val tag = videoView.tag as? String
-                                if (tag != videoUri) {
+                                if (videoView is android.widget.VideoView) {
+                                    val tag = videoView.tag as? String
+                                    if (tag != videoUri) {
+                                        try {
+                                            videoView.setVideoURI(resolvedUri)
+                                            videoView.seekTo(currentPositionMs.toInt())
+                                            playStateRef.isPlaying = null
+                                        } catch (e: Exception) {
+                                            // safe fallback
+                                        }
+                                        videoView.tag = videoUri
+                                    }
+
+                                    if (isPlaying) {
+                                        if (playStateRef.isPlaying != true) {
+                                            try {
+                                                videoView.start()
+                                                playStateRef.isPlaying = true
+                                            } catch (e: Exception) {
+                                                // Handle element recycle gracefully
+                                            }
+                                        }
+                                    } else {
+                                        if (playStateRef.isPlaying != false) {
+                                            try {
+                                                videoView.pause()
+                                                playStateRef.isPlaying = false
+                                            } catch (e: Exception) {
+                                                // Handle element recycle gracefully
+                                            }
+                                        }
+                                    }
+
+                                    // Sync position with zero-IPC local change detection to avoid blocking UI main thread
                                     try {
-                                        videoView.setVideoURI(Uri.parse(videoUri))
-                                        videoView.seekTo(currentPositionMs.toInt())
-                                        playStateRef.isPlaying = null
-                                    } catch (e: Exception) {
-                                        // safe fallback
-                                    }
-                                    videoView.tag = videoUri
-                                }
-
-                                if (isPlaying) {
-                                    if (playStateRef.isPlaying != true) {
-                                        try {
-                                            videoView.start()
-                                            playStateRef.isPlaying = true
-                                        } catch (e: Exception) {
-                                            // Handle element recycle gracefully
+                                        val lastPos = lastPositionRef.value
+                                        val isJump = lastPos == 0L || 
+                                                     currentPositionMs < lastPos || 
+                                                     (currentPositionMs - lastPos) > 1500L
+                                        
+                                        if ((!isPlaying && currentPositionMs != lastPos) || isJump) {
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastSeekTimeRef.value > 250L || isJump) {
+                                                videoView.seekTo(currentPositionMs.toInt())
+                                                lastSeekTimeRef.value = now
+                                            }
                                         }
+                                        lastPositionRef.value = currentPositionMs
+                                    } catch (e: Throwable) {
+                                        // Handle element recycle gracefully
                                     }
-                                } else {
-                                    if (playStateRef.isPlaying != false) {
-                                        try {
-                                            videoView.pause()
-                                            playStateRef.isPlaying = false
-                                        } catch (e: Exception) {
-                                            // Handle element recycle gracefully
-                                        }
-                                    }
-                                }
-
-                                // Sync position with zero-IPC local change detection to avoid blocking UI main thread
-                                try {
-                                    val lastPos = lastPositionRef.value
-                                    val isJump = lastPos == 0L || 
-                                                 currentPositionMs < lastPos || 
-                                                 (currentPositionMs - lastPos) > 1500L
-                                    
-                                    if (!isPlaying || isJump) {
-                                        videoView.seekTo(currentPositionMs.toInt())
-                                    }
-                                    lastPositionRef.value = currentPositionMs
-                                } catch (e: Exception) {
-                                    // Handle element recycle gracefully
                                 }
                             },
                             onRelease = { videoView ->
-                                try {
-                                    videoView.stopPlayback()
-                                } catch (e: Exception) {
-                                    // safe fallback
+                                if (videoView is android.widget.VideoView) {
+                                    try {
+                                        videoView.stopPlayback()
+                                    } catch (e: Exception) {
+                                        // safe fallback
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -233,53 +276,77 @@ fun VideoPlayerSimulator(
                     ) {
                         AndroidView(
                             factory = { context ->
-                                WebView(context).apply {
-                                    settings.javaScriptEnabled = true
-                                    settings.mediaPlaybackRequiresUserGesture = false
-                                    settings.domStorageEnabled = true
-                                    webViewClient = WebViewClient()
-                                    webChromeClient = WebChromeClient()
-                                    
-                                    val startSecState = (currentPositionMs / 1000).toInt()
-                                    val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=1&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState"
-                                    loadUrl(embedUrl)
+                                try {
+                                    WebView(context).apply {
+                                        setBackgroundColor(android.graphics.Color.BLACK)
+                                        settings.javaScriptEnabled = true
+                                        settings.mediaPlaybackRequiresUserGesture = false
+                                        settings.domStorageEnabled = true
+                                        webViewClient = WebViewClient()
+                                        webChromeClient = WebChromeClient()
+                                        
+                                        val startSecState = (currentPositionMs / 1000).toInt()
+                                        val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=1&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState"
+                                        loadUrl(embedUrl)
+                                    }
+                                } catch (t: Throwable) {
+                                    android.util.Log.e("VideoPlayerSimulator", "WebView creation failed", t)
+                                    webViewLoadFailed = true
+                                    android.view.View(context)
                                 }
                             },
-                            update = { webView ->
-                                val lastPos = lastPositionRef.value
-                                val isJump = lastPos == 0L || 
-                                             currentPositionMs < lastPos || 
-                                             (currentPositionMs - lastPos) > 1500L
-                                             
-                                val tag = webView.tag as? String
-                                val autopl = if (isPlaying) 1 else 0
-                                if (tag != videoUri || isJump) {
-                                    val startSecState = (currentPositionMs / 1000).toInt()
-                                    val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
-                                    webView.loadUrl(embedUrl)
-                                    webView.tag = videoUri
-                                    lastPositionRef.value = currentPositionMs
-                                    playStateRef.isPlaying = isPlaying
-                                } else {
-                                    if (isPlaying) {
-                                        if (playStateRef.isPlaying != true) {
-                                            webView.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.play(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":\"\"}', '*'); }", null)
-                                            playStateRef.isPlaying = true
+                            update = { view ->
+                                if (view is WebView) {
+                                    val lastPos = lastPositionRef.value
+                                    val isJump = lastPos == 0L || 
+                                                 currentPositionMs < lastPos || 
+                                                 (currentPositionMs - lastPos) > 1500L
+                                                 
+                                    val tag = view.tag as? String
+                                    val autopl = if (isPlaying) 1 else 0
+                                    if (tag != videoUri) {
+                                        val startSecState = (currentPositionMs / 1000).toInt()
+                                        val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
+                                        view.loadUrl(embedUrl)
+                                        view.tag = videoUri
+                                        lastPositionRef.value = currentPositionMs
+                                        playStateRef.isPlaying = isPlaying
+                                        lastSeekTimeRef.value = System.currentTimeMillis()
+                                    } else if (isJump) {
+                                        val now = System.currentTimeMillis()
+                                        if (now - lastSeekTimeRef.value > 1000L) {
+                                            val startSecState = (currentPositionMs / 1000).toInt()
+                                            val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
+                                            view.loadUrl(embedUrl)
+                                            lastPositionRef.value = currentPositionMs
+                                            playStateRef.isPlaying = isPlaying
+                                            lastSeekTimeRef.value = now
                                         }
                                     } else {
-                                        if (playStateRef.isPlaying != false) {
-                                            webView.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.pause(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":\"\"}', '*'); }", null)
-                                            playStateRef.isPlaying = false
+                                        if (isPlaying) {
+                                            if (playStateRef.isPlaying != true) {
+                                                view.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.play(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":\"\"}', '*'); }", null)
+                                                playStateRef.isPlaying = true
+                                            }
+                                        } else {
+                                            if (playStateRef.isPlaying != false) {
+                                                view.evaluateJavascript("const v = document.querySelector('video'); if (v) { v.pause(); } else { document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":\"\"}', '*'); }", null)
+                                                playStateRef.isPlaying = false
+                                            }
                                         }
                                     }
+                                    // ALWAYS update lastPositionRef.value to match currentPositionMs so we never drift and loop-reload
+                                    lastPositionRef.value = currentPositionMs
                                 }
                             },
-                            onRelease = { webView ->
-                                try {
-                                    webView.stopLoading()
-                                    webView.loadUrl("about:blank")
-                                } catch (e: Exception) {
-                                    // safe fallback
+                            onRelease = { view ->
+                                if (view is WebView) {
+                                    try {
+                                        view.stopLoading()
+                                        view.loadUrl("about:blank")
+                                    } catch (e: Exception) {
+                                        // safe fallback
+                                    }
                                 }
                             },
                             modifier = Modifier
@@ -458,19 +525,29 @@ fun VideoPlayerSimulator(
                 }
             }
 
+            val currentPanOffset by rememberUpdatedState(panOffset)
+
             // Draggable Crop Area gesture hook
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val deltaX = dragAmount.x
-                            val fullW = size.width
-                            val step = deltaX / fullW
-                            val nextOffset = (panOffset + step).coerceIn(0f, 1f)
-                            onPanOffsetChanged(nextOffset)
-                        }
+                        detectDragGestures(
+                            onDragEnd = {
+                                onPanOffsetCommit(currentPanOffset)
+                            },
+                            onDragCancel = {
+                                onPanOffsetCommit(currentPanOffset)
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                val deltaX = dragAmount.x
+                                val fullW = size.width
+                                val step = deltaX / fullW
+                                val nextOffset = (currentPanOffset + step).coerceIn(0f, 1f)
+                                onPanOffsetChanged(nextOffset)
+                            }
+                        )
                     }
             )
 
@@ -497,7 +574,7 @@ fun VideoPlayerSimulator(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "LIVE BAKE PREVIEW",
+                        text = "LIVE PREVIEW",
                         color = Color.White,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,

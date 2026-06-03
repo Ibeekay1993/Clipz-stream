@@ -94,7 +94,7 @@ fun CompletedScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Exported clips will appear here permanently. Choose a video in the Editor and click 'Lock & Bake' to start export.",
+                            text = "Exported clips will appear here permanently. Choose a video in the Editor and click 'Export Clip' to start.",
                             color = TextMuted,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
