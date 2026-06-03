@@ -6,6 +6,25 @@ from moviepy.editor import VideoFileClip
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("clipper_service")
 
+def log_video_metadata(source_path: str):
+    """
+    Logs metadata of the input video including format, duration, size, fps, and codec using MoviePy.
+    """
+    try:
+        logger.info(f"[*] Fetching video metadata for source: '{source_path}'")
+        with VideoFileClip(source_path) as video:
+            duration = video.duration
+            size = video.size
+            fps = video.fps
+            codec = getattr(video.reader, 'codec', 'unknown_codec')
+            logger.info(f"[+] Video metadata loaded successfully from MoviePy:")
+            logger.info(f"    - Duration: {duration}s")
+            logger.info(f"    - Resolution: {size[0]}x{size[1]}" if (size and len(size) >= 2) else f"    - Size: {size}")
+            logger.info(f"    - FPS: {fps}")
+            logger.info(f"    - Codec: {codec}")
+    except Exception as e:
+        logger.warning(f"[-] Could not read video metadata using MoviePy: {e}")
+
 def extract_clip(source_path: str, output_path: str, start: float, end: float) -> str:
     """
     Extracts a subclip using MoviePy's VideoFileClip.
@@ -17,6 +36,9 @@ def extract_clip(source_path: str, output_path: str, start: float, end: float) -
     """
     logger.info(f"[*] Starting extract_clip: Trim range is {start}s to {end}s.")
     logger.info(f"[*] Source path: '{source_path}', Output path: '{output_path}'")
+
+    # Run the metadata helper to verify we read the source video correctly
+    log_video_metadata(source_path)
 
     # Ensure output directory is present
     out_dir = os.path.dirname(output_path)

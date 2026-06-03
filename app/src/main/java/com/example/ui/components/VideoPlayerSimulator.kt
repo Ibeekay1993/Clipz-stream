@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -123,12 +124,32 @@ fun VideoPlayerSimulator(
             }
         }
 
+        var forceHostFeed by remember(videoUri) { mutableStateOf(false) }
+
         val isRealVideo = remember(videoUri, videoViewLoadFailed) {
             val cleanUrl = videoUri.lowercase().substringBefore("?")
+            val isLocalPath = videoUri.startsWith("/") || videoUri.startsWith("file:")
+            val isContentUri = videoUri.startsWith("content:")
+            
+            val isValidLocalFile = if (isLocalPath) {
+                try {
+                    val filePath = if (videoUri.startsWith("file://")) {
+                        videoUri.substring(7)
+                    } else {
+                        videoUri
+                    }
+                    val file = java.io.File(filePath)
+                    file.exists() && file.length() > 5000
+                } catch (e: Exception) {
+                    false
+                }
+            } else {
+                false
+            }
+
             videoUri.isNotEmpty() && !videoViewLoadFailed && (
-                videoUri.startsWith("content:") || 
-                videoUri.startsWith("file:") || 
-                videoUri.startsWith("/") || 
+                isContentUri || 
+                isValidLocalFile || 
                 (videoUri.startsWith("http") && (cleanUrl.endsWith(".mp4") || cleanUrl.endsWith(".mkv") || cleanUrl.endsWith(".m3u8") || cleanUrl.endsWith(".webm") || cleanUrl.contains("clips")))
             )
         }
@@ -151,6 +172,9 @@ fun VideoPlayerSimulator(
         val isYoutube = remember(youtubeId, isWebViewAvailable, webViewLoadFailed) {
             youtubeId != null && isWebViewAvailable && !webViewLoadFailed
         }
+
+        val isRealVideoEffective = isRealVideo && !forceHostFeed
+        val isYoutubeEffective = isYoutube && !forceHostFeed
 
         // Dynamic Speaker visualizer background reflecting video topic
         Box(
@@ -188,7 +212,7 @@ fun VideoPlayerSimulator(
                     .fillMaxSize()
                     .align(Alignment.Center)
             ) {
-                if (isRealVideo) {
+                if (isRealVideoEffective) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -286,7 +310,7 @@ fun VideoPlayerSimulator(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                } else if (isYoutube && youtubeId != null) {
+                } else if (isYoutubeEffective && youtubeId != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -581,6 +605,7 @@ fun VideoPlayerSimulator(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xD9101115))
+                        .clickable { forceHostFeed = !forceHostFeed }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                         .align(Alignment.CenterStart),
                     verticalAlignment = Alignment.CenterVertically
@@ -589,16 +614,25 @@ fun VideoPlayerSimulator(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(Color.Red)
+                            .background(if (forceHostFeed) Color.Gray else Color.Red)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "LIVE PREVIEW",
+                        text = if (forceHostFeed) "SPEAKER VISUALS FEED" else "LIVE PREVIEW",
                         color = Color.White,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     )
+                    if (isRealVideo || isYoutube) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (forceHostFeed) Icons.Default.GraphicEq else Icons.Default.PlayArrow,
+                            contentDescription = "Toggle Source",
+                            tint = PrimaryNeon,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
                 }
 
                 Text(
