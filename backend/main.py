@@ -8,12 +8,19 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from services.clipper import generate_clip
+from services.clipper import extract_clip
+from services.cleanup import start_background_cleanup_worker
 
 app = FastAPI(
     title="WayinVideo Backend",
     description="Physical AI YouTube Shorts subtitle generator and MoviePy segmentation backend."
 )
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the local storage cleanup thread (removes aged-out clips older than 30 minutes, sweeps every 5 minutes)
+    start_background_cleanup_worker("clips", max_age_seconds=1800, interval_seconds=300)
+
 
 # Enable CORS for cross-platform integration
 app.add_middleware(
@@ -180,7 +187,7 @@ async def process_video(request_body: ProcessRequest, request: Request):
                 
                 # Run MoviePy to physically slice and write video clip file
                 try:
-                    generate_clip(video_path, start_sec, end_sec, clip_filepath)
+                    extract_clip(video_path, clip_filepath, start_sec, end_sec)
                     # Produce paths compatible with standard client protocols
                     full_clip_url = f"{base_url.rstrip('/')}/clips/{clip_filename}"
                 except Exception as moviepy_err:

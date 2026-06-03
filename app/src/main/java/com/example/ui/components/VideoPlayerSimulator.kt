@@ -74,8 +74,25 @@ fun VideoPlayerSimulator(
         label = "waveScale"
     )
 
+    // Check if playing a processed cut clip segment starting at 0 to shift caption offset correctly
+    val isClipped = remember(videoUri) {
+        videoUri.isNotEmpty() && (
+            videoUri.contains("/clips/") || 
+            videoUri.contains("ClipClipper") || 
+            videoUri.contains("baked_")
+        )
+    }
+    val firstWordStart = remember(captions) {
+        captions.firstOrNull()?.startMs ?: 0L
+    }
+    val lookupPosition = if (isClipped && firstWordStart > 1000L) {
+        currentPositionMs + firstWordStart
+    } else {
+        currentPositionMs
+    }
+
     // Calculate currently active subtitle word
-    val activeWord = captions.find { currentPositionMs in it.startMs..it.endMs }
+    val activeWord = captions.find { lookupPosition in it.startMs..it.endMs }
     val activeWordIndex = captions.indexOf(activeWord)
 
     val lastPositionRef = remember { PositionRef(0L) }
@@ -107,11 +124,12 @@ fun VideoPlayerSimulator(
         }
 
         val isRealVideo = remember(videoUri, videoViewLoadFailed) {
+            val cleanUrl = videoUri.lowercase().substringBefore("?")
             videoUri.isNotEmpty() && !videoViewLoadFailed && (
                 videoUri.startsWith("content:") || 
                 videoUri.startsWith("file:") || 
                 videoUri.startsWith("/") || 
-                (videoUri.startsWith("http") && (videoUri.lowercase().endsWith(".mp4") || videoUri.lowercase().endsWith(".mkv") || videoUri.lowercase().endsWith(".m3u8") || videoUri.lowercase().endsWith(".webm")))
+                (videoUri.startsWith("http") && (cleanUrl.endsWith(".mp4") || cleanUrl.endsWith(".mkv") || cleanUrl.endsWith(".m3u8") || cleanUrl.endsWith(".webm") || cleanUrl.contains("clips")))
             )
         }
 
@@ -184,8 +202,9 @@ fun VideoPlayerSimulator(
                                         setOnPreparedListener { mp ->
                                             mp.isLooping = true
                                         }
-                                        setOnErrorListener { _, _, _ ->
-                                            // Prevents standard error dialog and activity crash
+                                        setOnErrorListener { _, what, extra ->
+                                            android.util.Log.e("VideoPlayerSimulator", "VideoView playback error: what=$what extra=$extra")
+                                            videoViewLoadFailed = true
                                             true
                                         }
                                         try {
