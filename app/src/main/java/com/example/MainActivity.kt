@@ -43,9 +43,6 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
-                    topBar = {
-                        TopBarBranding()
-                    },
                     bottomBar = {
                         NavigationBar(
                             containerColor = ContainerGrey,
@@ -179,7 +176,7 @@ fun TopBarBranding() {
                 }
 
                 Text(
-                    text = "WayinVideo",
+                    text = "LClipz",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Black,
                     color = TextWhite,

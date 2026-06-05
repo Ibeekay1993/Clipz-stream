@@ -1,5 +1,5 @@
 {
-  "name": "WayinVideo",
+  "name": "LClipz",
   "description": "Find and cut viral, high-retention short vertical videos easily from wide-angle streams, podcasts, and device uploads.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

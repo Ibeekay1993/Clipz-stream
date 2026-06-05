@@ -12,7 +12,7 @@ from services.clipper import extract_clip
 from services.cleanup import start_background_cleanup_worker
 
 app = FastAPI(
-    title="WayinVideo Backend",
+    title="LClipz Backend",
     description="Physical AI YouTube Shorts subtitle generator and MoviePy segmentation backend."
 )
 

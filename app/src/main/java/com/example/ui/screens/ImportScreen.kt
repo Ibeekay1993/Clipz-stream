@@ -128,31 +128,53 @@ fun ImportScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(DarkBg)
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp)
+            contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
-            // Header Banner with OPUS v2 brand badge
+            // Header Banner minimal: brand logo + settings icon
             item {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(PrimaryNeon),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MovieFilter,
+                                contentDescription = "Logo",
+                                tint = Color.Black,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         Text(
-                            text = "Import Media Source",
-                            fontSize = 24.sp,
+                            text = "LClipz Studio",
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Paste a long video web-link or use pre-configured studio podcasts to generate viral clips instantly.",
-                        fontSize = 13.sp,
-                        color = TextMuted,
-                        lineHeight = 18.sp
-                    )
+                    IconButton(onClick = {}) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
@@ -277,13 +299,13 @@ fun ImportScreen(
                                         .testTag("import_video_url_input")
                                 )
 
-                                // Autofill Helper Row
+                                // Autofill Helper Chips for Lex Fridman, Joe Rogan and Motivation Pro
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = "Try instant test links:",
+                                        text = "Try high retention creator links:",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextMuted
@@ -293,68 +315,30 @@ fun ImportScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(ContainerGrey)
-                                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
-                                                .clickable {
-                                                    inputUrl = "https://www.youtube.com/watch?v=AaMdXZMvT3w"
-                                                    inputTitle = "👾 Awesome Vibecoding & High-Fidelity AI Agents"
-                                                    inputDesc = "Learn how to architect, manage context, design processes, and avoid AI hallucinations with production-grade engineering discipline."
-                                                }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        listOf(
+                                            Triple("Lex Fridman", "https://www.youtube.com/watch?v=AaMdXZMvT3w", Pair("🤖 Lex Fridman", "AI expert conversation on future software engineering & deep models.")),
+                                            Triple("Joe Rogan", "https://www.youtube.com/watch?v=j9_9v3_Ufbg", Pair("🎙️ Joe Rogan", "Peak performance discussion and continuous focus routines.")),
+                                            Triple("Motivation Pro", "https://www.youtube.com/watch?v=kYfT8O7u_gY", Pair("🔥 Motivation Pro", "Mental endurance tips for high intensity software development."))
+                                        ).forEach { (label, url, meta) ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(ContainerGrey)
+                                                    .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        inputUrl = url
+                                                        inputTitle = meta.first
+                                                        inputDesc = meta.second
+                                                    }
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlayCircle,
-                                                    contentDescription = "Test YouTube",
-                                                    tint = PrimaryNeon,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
                                                 Text(
-                                                    text = "AaMdXZMvT3w (YouTube)",
+                                                    text = label,
                                                     color = Color.White,
                                                     fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(ContainerGrey)
-                                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
-                                                .clickable {
-                                                    inputUrl = "https://github.com/Ibeekay1993/Clipz-stream"
-                                                    inputTitle = "🎮 Clipz Stream: Automated Live Highlights"
-                                                    inputDesc = "Seamless Twitch stream extraction and automated highlights. Integrates audio peaks, chat velocity, and visual action trackers for viral gameplay clipping."
-                                                }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Code,
-                                                    contentDescription = "Test GitHub Link",
-                                                    tint = PrimaryNeon,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Text(
-                                                    text = "Clipz-stream (GitHub)",
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium,
+                                                    fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -438,39 +422,6 @@ fun ImportScreen(
                                         )
                                     }
                                 }
-
-                                // Submit Button
-                                Button(
-                                    onClick = {
-                                        if (inputUrl.isNotEmpty()) {
-                                            val t = if (inputTitle.isNotEmpty()) inputTitle else "Custom Ingested Stream File"
-                                            val d = if (inputDesc.isNotEmpty()) inputDesc else "Custom imported high retention lecture video file."
-                                            viewModel.importVideo(
-                                                title = t,
-                                                description = d,
-                                                sourceUrl = inputUrl,
-                                                duration = 120,
-                                                transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
-                                            )
-                                        }
-                                    },
-                                    enabled = inputUrl.isNotEmpty(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = PrimaryNeon,
-                                        contentColor = Color.Black,
-                                        disabledContainerColor = Color(0x1F8D8FA6),
-                                        disabledContentColor = TextMuted
-                                    ),
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp)
-                                        .testTag("import_video_submit_button")
-                                ) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = "Gears", modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Import and Create Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                }
                             }
                         }
                     } else {
@@ -549,7 +500,7 @@ fun ImportScreen(
                                             color = Color.White
                                         )
                                         Text(
-                                            text = "To test real, physical video frame splitting and multiplexer trimming locally on your phone, choose any real MP4/MKV video here! Web links and presets use Cloud AI pipeline simulations.",
+                                            text = "Upload and process any MP4/MKV video directly from your device storage to trim or split selected high-retention vertical frames locally with our native video processing engine.",
                                             fontSize = 11.sp,
                                             color = TextMuted,
                                             lineHeight = 15.sp
@@ -639,32 +590,7 @@ fun ImportScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     )
 
-                                    // Action to ingest local file
-                                    Button(
-                                        onClick = {
-                                            val t = if (inputTitle.isNotEmpty()) inputTitle else localVideoName.substringBeforeLast(".")
-                                            val d = if (inputDesc.isNotEmpty()) inputDesc else "Imported high retention device video file."
-                                            viewModel.importVideo(
-                                                title = t,
-                                                description = d,
-                                                sourceUrl = localVideoUri.toString(),
-                                                duration = localVideoDuration,
-                                                transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are testing an uploaded local video file, configuring modern speech components, syncing responsive captions, and exporting short vertical highlights."
-                                            )
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = PrimaryNeon,
-                                            contentColor = Color.Black
-                                        ),
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(52.dp)
-                                    ) {
-                                        Icon(Icons.Default.AutoAwesome, contentDescription = "Bake", modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Import and Create Clips", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    }
+                                    // OutlinedTextField and column close (No internal button here)
                                 }
                             }
                         }
@@ -672,10 +598,70 @@ fun ImportScreen(
                 }
             }
 
+            // Unified "Analyse & generate clips" outer CTA
+            item {
+                val buttonEnabled = if (selectedImportTab == 0) inputUrl.isNotEmpty() else localVideoUri != null
+                Button(
+                    onClick = {
+                        if (selectedImportTab == 0) {
+                            if (inputUrl.isNotEmpty()) {
+                                val t = if (inputTitle.isNotEmpty()) inputTitle else "Custom Ingested Stream"
+                                val d = if (inputDesc.isNotEmpty()) inputDesc else "Custom imported high retention stream presentation."
+                                viewModel.importVideo(
+                                    title = t,
+                                    description = d,
+                                    sourceUrl = inputUrl,
+                                    duration = 120,
+                                    transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
+                                )
+                            }
+                        } else {
+                            localVideoUri?.let { uri ->
+                                val t = if (inputTitle.isNotEmpty()) inputTitle else localVideoName.substringBeforeLast(".")
+                                val d = if (inputDesc.isNotEmpty()) inputDesc else "Imported high retention device video file."
+                                    viewModel.importVideo(
+                                        title = t,
+                                        description = d,
+                                        sourceUrl = uri.toString(),
+                                        duration = localVideoDuration,
+                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are processing an uploaded local video file, configuring modern speech components, syncing responsive captions, and exporting short vertical highlights."
+                                    )
+                            }
+                        }
+                    },
+                    enabled = buttonEnabled,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryNeon,
+                        contentColor = Color.Black,
+                        disabledContainerColor = Color(0x1F8D8FA6),
+                        disabledContentColor = TextMuted
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .testTag("import_video_submit_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Sparkles",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Analyse & generate clips",
+                        color = if (buttonEnabled) Color.Black else TextMuted,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+
             // Quick Start Title
             item {
                 Text(
-                    text = "Studio Podcast Presets (Test Instantly!)",
+                    text = "Studio Podcast Presets (Process Instantly)",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,

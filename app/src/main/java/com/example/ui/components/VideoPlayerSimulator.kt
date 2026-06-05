@@ -251,6 +251,7 @@ fun VideoPlayerSimulator(
                                         try {
                                             videoView.setVideoURI(resolvedUri)
                                             videoView.seekTo(currentPositionMs.toInt())
+                                            lastPositionRef.value = currentPositionMs
                                             playStateRef.isPlaying = null
                                         } catch (e: Exception) {
                                             // safe fallback
@@ -281,8 +282,7 @@ fun VideoPlayerSimulator(
                                     // Sync position with zero-IPC local change detection to avoid blocking UI main thread
                                     try {
                                         val lastPos = lastPositionRef.value
-                                        val isJump = lastPos == 0L || 
-                                                     currentPositionMs < lastPos || 
+                                        val isJump = currentPositionMs < lastPos || 
                                                      (currentPositionMs - lastPos) > 1500L
                                         
                                         if ((!isPlaying && currentPositionMs != lastPos) || isJump) {

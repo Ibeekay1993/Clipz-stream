@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val PrimaryNeon = Color(0xFF00FF87)   // Vibrant Wayin-Green
+val PrimaryNeon = Color(0xFF00FF87)   // Vibrant LClipz-Green
 val SecondaryNeon = Color(0xFF0F1012) // Slate Black Accent
 val AccentNeon = Color(0xFF00FF87)    // Glowing Accent Green
 

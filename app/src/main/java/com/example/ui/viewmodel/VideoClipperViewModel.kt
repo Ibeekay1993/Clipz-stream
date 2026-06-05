@@ -40,7 +40,7 @@ sealed interface LoadingState {
 sealed interface ExportState {
     object Idle : ExportState
     data class Exporting(val progress: Int, val currentStep: String) : ExportState
-    data class Completed(val clipTitle: String, val thumbnail: String) : ExportState
+    data class Completed(val clipTitle: String, val thumbnail: String, val exportedFilePath: String? = null) : ExportState
     data class Error(val message: String) : ExportState
 }
 
@@ -97,7 +97,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
     val supabaseAnonKey = MutableStateFlow("")
     val isSupabaseSynced = MutableStateFlow<Boolean?>(null)
 
-    // Interactive Moments search query like WayinVideo
+    // Interactive Moments search query like LClipz
     val searchQuery = MutableStateFlow("")
 
     // Background Processing states
@@ -930,7 +930,8 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 
                 _exportState.value = ExportState.Completed(
                     clipTitle = titleStr,
-                    thumbnail = project.thumbnailUrl
+                    thumbnail = project.thumbnailUrl,
+                    exportedFilePath = destFile.absolutePath
                 )
             } else {
                 _exportState.value = ExportState.Error("Clipping Engine failed: unable to validate output render file size.")
