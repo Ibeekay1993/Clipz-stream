@@ -31,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
-import com.example.data.model.SampleVideos
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.LoadingState
 import com.example.ui.viewmodel.VideoClipperViewModel
@@ -655,99 +654,6 @@ fun ImportScreen(
                         fontSize = 15.sp,
                         letterSpacing = 0.5.sp
                     )
-                }
-            }
-
-            // Quick Start Title
-            item {
-                Text(
-                    text = "Studio Podcast Presets (Process Instantly)",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            // Pre-configured videos grid
-            items(SampleVideos.list) { video ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            viewModel.importVideo(
-                                title = video.title,
-                                description = video.description,
-                                sourceUrl = video.url,
-                                duration = video.durationSeconds,
-                                transcript = video.transcript
-                            )
-                        }
-                        .border(1.dp, Color(0x0F8D8FA6), RoundedCornerShape(16.dp))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Custom vector icon placeholder mimicking a high-end podcast clip
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = if (video.url.contains("ai")) 
-                                            listOf(SecondaryNeon, PrimaryNeon)
-                                        else 
-                                            listOf(SecondaryNeon, Color(0xFF5D4E8C))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = if (video.url.contains("ai")) Icons.Default.GraphicEq else Icons.Default.PlayArrow,
-                                    contentDescription = "Podcast",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    text = "${video.durationSeconds}s",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = video.title,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = video.description,
-                                fontSize = 11.sp,
-                                color = TextMuted,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = 15.sp
-                            )
-                        }
-                    }
                 }
             }
         }

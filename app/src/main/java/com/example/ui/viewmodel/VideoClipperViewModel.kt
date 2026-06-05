@@ -7,8 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.Clip
 import com.example.data.model.Project
-import com.example.data.model.SampleVideo
-import com.example.data.model.SampleVideos
 import com.example.data.model.WordTimestamp
 import com.example.data.repository.VideoRepository
 import android.util.Log
@@ -250,23 +248,15 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             _loadingState.value = LoadingState.Analyzing(0, "yt-dlp: Ingesting high-definition source stream...", "")
             delay(800)
             
-            // 1. Normalize and resolve against presets so even raw manually entered URLs load successfully!
+            // 1. Normalize and load the live stream url
             val rawUrl = sourceUrl.trim()
             val normalizedSearch = normalizeUrl(rawUrl)
-            
-            // Find matched preset
-            val matchedPreset = SampleVideos.list.find { sample ->
-                val sampleClean = normalizeUrl(sample.url)
-                sampleClean == normalizedSearch || 
-                (normalizedSearch.isNotEmpty() && sampleClean.contains(normalizedSearch)) ||
-                (sampleClean.isNotEmpty() && normalizedSearch.contains(sampleClean))
-            }
 
-            var finalTitle = matchedPreset?.title ?: if (title.isNotEmpty()) title else "Custom Ingested Stream File"
-            var finalDesc = matchedPreset?.description ?: if (description.isNotEmpty()) description else "Custom imported high retention lecture video file."
-            var finalTranscript = matchedPreset?.transcript ?: if (transcript.isNotEmpty()) transcript else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
-            var finalDuration = matchedPreset?.durationSeconds ?: duration
-            val finalSourceUrl = matchedPreset?.url ?: rawUrl
+            var finalTitle = if (title.isNotEmpty()) title else "Custom Ingested Stream File"
+            var finalDesc = if (description.isNotEmpty()) description else "Custom imported high retention lecture video file."
+            var finalTranscript = if (transcript.isNotEmpty()) transcript else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
+            var finalDuration = duration
+            val finalSourceUrl = rawUrl
 
             var fetchedWords: List<WordTimestamp>? = null
             var dynamicTimeline: Map<Int, Float>? = null
@@ -275,7 +265,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var backendClipsList: List<Clip>? = null
 
             // Check if call should go to our custom FastAPI Render backend first
-            if (matchedPreset == null && rawUrl.startsWith("http")) {
+            if (rawUrl.startsWith("http")) {
                 _loadingState.value = LoadingState.Analyzing(5, "Render API: Routing stream configuration matrix to cloud host...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
@@ -325,10 +315,10 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 }
             }
 
-            // Fallback to traditional local/Gemini flow if Backend failed or Preset matched
+            // Fallback to traditional local/Gemini flow if Backend failed
             var apiClipsResponse: com.example.network.GeminiClipsListResponse? = null
             if (!isBackendSuccess) {
-                if (matchedPreset == null) {
+                if (true) {
                     val extractedId = extractYoutubeId(rawUrl)
                     if (extractedId != null) {
                         _loadingState.value = LoadingState.Analyzing(8, "yt-dlp: Resolving remote stream metadata...", "")
@@ -610,28 +600,6 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         transcript: String, 
         duration: Long
     ): List<Clip> {
-        val normalizedSource = normalizeUrl(sourceUrl)
-        val matchedSample = SampleVideos.list.find { sample ->
-            val sampleClean = normalizeUrl(sample.url)
-            sampleClean == normalizedSource || 
-            (normalizedSource.isNotEmpty() && sampleClean.contains(normalizedSource)) ||
-            (sampleClean.isNotEmpty() && normalizedSource.contains(sampleClean)) ||
-            sample.title.equals(title, ignoreCase = true)
-        }
-        if (matchedSample != null) {
-            return matchedSample.mockClips.map { c ->
-                Clip(
-                    projectId = projectId,
-                    title = c.title,
-                    startSec = c.startSec,
-                    endSec = c.endSec,
-                    viralScore = c.viralScore,
-                    viralReason = c.viralReason,
-                    captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList())
-                )
-            }
-        }
-
         // Custom, highly-intelligent transcript-based semantic partition!
         // This parses sentences from transcript and groups them into coherent clips.
         val sentences = transcript.split(Regex("(?<=[.!?])\\s+"))
