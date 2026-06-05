@@ -64,6 +64,8 @@ fun EditorScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     val projects by viewModel.projects.collectAsState()
+    val isSupabaseSynced by viewModel.isSupabaseSynced.collectAsState()
+    val loadingState by viewModel.loadingState.collectAsState()
 
     var activeTab by remember { mutableStateOf(0) } // 0 = AI Clips, 1 = Transcript, 2 = Crop & Adjust
     var localSearchText by remember { mutableStateOf(searchQuery) }
@@ -254,6 +256,45 @@ fun EditorScreen(
                             text = "Browse moments to edit",
                             color = TextMuted,
                             fontSize = 11.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Cloud Synced Badge / Button triggering direct Supabase syncing
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                if (isSupabaseSynced == true) Color(0xFF0C2B1D) 
+                                else if (isSupabaseSynced == false) Color(0xFF3B151A)
+                                else ContainerGrey
+                            )
+                            .clickable { viewModel.syncCurrentProjectToSupabase() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("sync_to_supabase_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isSupabaseSynced == true) Icons.Default.CloudDone 
+                                          else if (isSupabaseSynced == false) Icons.Default.CloudOff 
+                                          else Icons.Default.CloudUpload,
+                            contentDescription = "Sync to Supabase Cloud",
+                            tint = if (isSupabaseSynced == true) PrimaryNeon 
+                                   else if (isSupabaseSynced == false) RatingLow 
+                                   else Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (isSupabaseSynced == true) "Synced" 
+                                   else if (isSupabaseSynced == false) "Failed" 
+                                   else "Sync",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSupabaseSynced == true) PrimaryNeon 
+                                    else if (isSupabaseSynced == false) RatingLow 
+                                    else Color.White
                         )
                     }
                 }

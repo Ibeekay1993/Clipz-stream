@@ -92,7 +92,20 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
     val currentPositionMs = MutableStateFlow(0L)
 
     // Supabase cloud credentials and synchronisation states
-    val supabaseAnonKey = MutableStateFlow("")
+    val supabaseAnonKey = MutableStateFlow(
+        run {
+            val keyFromConfig = try {
+                com.example.BuildConfig::class.java.getField("SUPABASE_ANON_KEY").get(null) as? String
+            } catch (e: Exception) {
+                null
+            }
+            if (!keyFromConfig.isNullOrBlank() && keyFromConfig != "YOUR_SUPABASE_ANON_KEY") {
+                keyFromConfig
+            } else {
+                "sb_publishable_veLZNP-CbhYwDTpqgMdyKQ_q4l8PF-9"
+            }
+        }
+    )
     val isSupabaseSynced = MutableStateFlow<Boolean?>(null)
 
     // Interactive Moments search query like LClipz
@@ -857,14 +870,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 }
                 
                 if (!successFallback) {
-                    // Fail-safe mock container write if network is offline
-                    try {
-                        destFile.parentFile?.mkdirs()
-                        destFile.createNewFile()
-                        FileOutputStream(destFile).use { fos ->
-                            fos.write("Pre-baked mock vertical 9:16 optimized MP4 container".toByteArray())
-                        }
-                    } catch (e: Exception) { }
+                    Log.w("VideoClipperViewModel", "Benchmark fallback trim failed cleanly, no mock fallback written.")
                 }
                 true
             }
