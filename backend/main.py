@@ -3,10 +3,11 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from enum import Enum
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import shutil
 
 import logging
 
@@ -373,6 +374,76 @@ class ProcessRequest(BaseModel):
 
 # ── Main endpoint ─────────────────────────────────────────────────────────────
 
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str) -> dict:
+    # 2 — Transcribe
+    print("🎙  Transcribing...")
+    words = transcribe(vpath)
+    if not words:
+        raise HTTPException(500, "No speech detected")
+    total_sec = words[-1]["endMs"] / 1000
+    print(f"  ✓ {len(words)} words  ({total_sec:.0f}s)")
+
+    # 3 — Chunk
+    print("🧩  Chunking...")
+    chunks = semantic_chunks(words)
+    if not chunks:
+        raise HTTPException(500, "Chunking failed")
+
+    # 4 — Score
+    print("🎯  Scoring...")
+    scored = [score(c) for c in chunks]
+    viable = sum(1 for c in scored if c.viable)
+    print(f"  ✓ {viable}/{len(scored)} viable (≥55)")
+
+    # Top 3 preview
+    for c in sorted(scored, key=lambda x: -x.score)[:3]:
+        print(f"    [{c.score:3d}] {c.hook:12s}  {c.text[:55]}...")
+
+    # 5 — Select
+    print(f"🏆  Selecting {n} clips...")
+    chosen = select(scored, n)
+
+    # 6 — Cut
+    print("✂️   Cutting...")
+    clips_out = []
+    for i, chunk in enumerate(chosen):
+        fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
+        fpath = os.path.join(CLIPS_DIR, fname)
+        try:
+            cut(vpath, chunk.start, chunk.end, fpath)
+            clip_url = f"{base}/clips/{fname}"
+        except Exception as e:
+            print(f"  ✗ clip {i+1} failed: {e} — using source URL")
+            clip_url = url_or_name
+
+        # Word timestamps remapped relative to clip start
+        off = chunk.words[0]["startMs"]
+        captions = [{"word":    w["word"],
+                      "startMs": w["startMs"] - off,
+                      "endMs":   w["endMs"]   - off}
+                     for w in chunk.words]
+
+        clips_out.append({
+            "title":       f"🔥 {chunk.title()}...",
+            "startSec":    int(chunk.start),
+            "endSec":      int(chunk.end),
+            "viralScore":  chunk.score,
+            "viralReason": (chunk.reasons[0] if chunk.reasons
+                            else "High-engagement moment"),
+            "captions":    captions,
+            "clipUrl":     clip_url,
+            "clip_url":    clip_url,
+            "hookType":    chunk.hook,
+            "allReasons":  chunk.reasons,
+            "durationSec": round(chunk.duration, 1),
+        })
+        print(f"  ✓ clip {i+1}  score={chunk.score}  "
+              f"hook={chunk.hook}  dur={chunk.duration:.0f}s")
+
+    print(f"{'─'*55}\n✅  {len(clips_out)} clips done\n")
+    return {"url": url_or_name, "duration": total_sec, "clips": clips_out}
+
+
 @app.post("/api/process")
 async def process_video(body: ProcessRequest, request: Request):
     url  = body.url.strip()
@@ -390,77 +461,34 @@ async def process_video(body: ProcessRequest, request: Request):
             print(f"📥  {url}")
             vpath = download_video(url, tmp)
             print(f"  ✓ downloaded")
+            
+            return await run_pipeline(vpath, url, n, base)
 
-            # 2 — Transcribe
-            print("🎙  Transcribing...")
-            words = transcribe(vpath)
-            if not words:
-                raise HTTPException(500, "No speech detected")
-            total_sec = words[-1]["endMs"] / 1000
-            print(f"  ✓ {len(words)} words  ({total_sec:.0f}s)")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"\n❌  {e}")
+            raise HTTPException(500, str(e))
 
-            # 3 — Chunk
-            print("🧩  Chunking...")
-            chunks = semantic_chunks(words)
-            if not chunks:
-                raise HTTPException(500, "Chunking failed")
-
-            # 4 — Score
-            print("🎯  Scoring...")
-            scored = [score(c) for c in chunks]
-            viable = sum(1 for c in scored if c.viable)
-            print(f"  ✓ {viable}/{len(scored)} viable (≥55)")
-
-            # Top 3 preview
-            for c in sorted(scored, key=lambda x: -x.score)[:3]:
-                print(f"    [{c.score:3d}] {c.hook:12s}  {c.text[:55]}...")
-
-            # 5 — Select
-            print(f"🏆  Selecting {n} clips...")
-            chosen = select(scored, n)
-
-            # 6 — Cut
-            print("✂️   Cutting...")
-            clips_out = []
-            for i, chunk in enumerate(chosen):
-                fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
-                fpath = os.path.join(CLIPS_DIR, fname)
-                try:
-                    cut(vpath, chunk.start, chunk.end, fpath)
-                    clip_url = f"{base}/clips/{fname}"
-                except Exception as e:
-                    print(f"  ✗ clip {i+1} failed: {e} — using source URL")
-                    clip_url = url
-
-                # Word timestamps remapped relative to clip start
-                off = chunk.words[0]["startMs"]
-                captions = [{"word":    w["word"],
-                              "startMs": w["startMs"] - off,
-                              "endMs":   w["endMs"]   - off}
-                             for w in chunk.words]
-
-                clips_out.append({
-                    # ── exact fields Android BackendClipOutput reads ──────────
-                    "title":       f"🔥 {chunk.title()}...",
-                    "startSec":    int(chunk.start),
-                    "endSec":      int(chunk.end),
-                    "viralScore":  chunk.score,
-                    "viralReason": (chunk.reasons[0] if chunk.reasons
-                                    else "High-engagement moment"),
-                    "captions":    captions,
-                    "clipUrl":     clip_url,
-                    "clip_url":    clip_url,   # legacy compat key
-                    # ── richer fields (optional, safe to ignore) ─────────────
-                    "hookType":    chunk.hook,
-                    "allReasons":  chunk.reasons,
-                    "durationSec": round(chunk.duration, 1),
-                })
-                print(f"  ✓ clip {i+1}  score={chunk.score}  "
-                      f"hook={chunk.hook}  dur={chunk.duration:.0f}s")
-
-            print(f"{'─'*55}\n✅  {len(clips_out)} clips done\n")
-            return {"url": url, "duration": total_sec, "clips": clips_out}
-
+@app.post("/api/upload")
+async def upload_video(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
+    n = max(1, min(num_clips, 8))
+    base = str(request.base_url).rstrip("/")
+    
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            print(f"\n{'─'*55}")
+            print(f"📥  Receiving upload: {file.filename}")
+            ext = os.path.splitext(file.filename)[1] or ".mp4"
+            vpath = os.path.join(tmp, f"uploaded_video{ext}")
+            
+            with open(vpath, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+                
+            print(f"  ✓ upload saved to disk")
+            
+            return await run_pipeline(vpath, file.filename, n, base)
+            
         except HTTPException:
             raise
         except Exception as e:
