@@ -269,7 +269,48 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var finalDesc = if (description.isNotEmpty()) description else "Custom imported high retention lecture video file."
             var finalTranscript = if (transcript.isNotEmpty()) transcript else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
             var finalDuration = duration
-            val finalSourceUrl = rawUrl
+            var finalSourceUrl = rawUrl
+
+            if (finalSourceUrl.startsWith("content://")) {
+                _loadingState.value = LoadingState.Analyzing(1, "Caching local video file to permanent app storage...", "")
+                try {
+                    val uri = android.net.Uri.parse(finalSourceUrl)
+                    val context = getApplication<android.app.Application>()
+                    val contentResolver = context.contentResolver
+                    
+                    var displayName = "imported_${System.currentTimeMillis()}.mp4"
+                    val cursor = contentResolver.query(uri, null, null, null, null)
+                    cursor?.use {
+                        if (it.moveToFirst()) {
+                            val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (nameIndex != -1) {
+                                val name = it.getString(nameIndex)
+                                if (!name.isNullOrBlank()) {
+                                    displayName = "imported_${System.currentTimeMillis()}_$name"
+                                }
+                            }
+                        }
+                    }
+                    
+                    val destFile = java.io.File(context.getExternalFilesDir(null), displayName)
+                    destFile.parentFile?.mkdirs()
+                    
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openInputStream(uri)?.use { inputStream ->
+                            java.io.FileOutputStream(destFile).use { outputStream ->
+                                inputStream.copyTo(outputStream)
+                            }
+                        }
+                    }
+                    
+                    if (destFile.exists() && destFile.length() > 0) {
+                        finalSourceUrl = destFile.absolutePath
+                        android.util.Log.d("VideoClipperViewModel", "Successfully cached content URI to permanent path: $finalSourceUrl")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("VideoClipperViewModel", "Failed to cache content URI: ${e.message}", e)
+                }
+            }
 
             var fetchedWords: List<WordTimestamp>? = null
             var dynamicTimeline: Map<Int, Float>? = null
