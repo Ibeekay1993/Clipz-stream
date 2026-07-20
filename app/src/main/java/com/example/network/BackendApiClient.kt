@@ -42,10 +42,21 @@ data class BackendWordCaption(
     val endMs: Long
 )
 
+import okhttp3.MultipartBody
+import retrofit2.http.Multipart
+import retrofit2.http.Part
+
 interface BackendApiService {
     @POST("api/process")
     suspend fun processVideo(
         @Body request: BackendProcessRequest
+    ): BackendProcessResponse
+
+    @Multipart
+    @POST("api/upload")
+    suspend fun uploadVideo(
+        @Part file: MultipartBody.Part,
+        @Part("num_clips") numClips: okhttp3.RequestBody
     ): BackendProcessResponse
 }
 

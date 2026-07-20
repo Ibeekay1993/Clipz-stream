@@ -319,17 +319,27 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var backendClipsList: List<Clip>? = null
 
             // Check if call should go to our custom FastAPI Render backend first
-            if (rawUrl.startsWith("http")) {
+            if (rawUrl.startsWith("http") || finalSourceUrl != rawUrl) {
                 _loadingState.value = LoadingState.Analyzing(5, "Render API: Routing stream configuration matrix to cloud host...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
-                        BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = 3))
+                        if (finalSourceUrl != rawUrl) {
+                            // We cached a local file, so we upload it via Multipart
+                            val file = java.io.File(finalSourceUrl)
+                            val requestFile = okhttp3.RequestBody.create(okhttp3.MediaType.parse("video/*"), file)
+                            val body = okhttp3.MultipartBody.Part.createFormData("file", file.name, requestFile)
+                            val numClipsPart = okhttp3.RequestBody.create(okhttp3.MediaType.parse("text/plain"), "3")
+                            BackendApiClient.service.uploadVideo(body, numClipsPart)
+                        } else {
+                            // It's a standard HTTP link
+                            BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = 3))
+                        }
                     }
                     _loadingState.value = LoadingState.Analyzing(50, "Render API: Local speech engine transcription completed!", "")
                     
                     finalDuration = backendResponse.duration.toLong()
-                    finalTitle = if (title.isNotEmpty()) title else "Render Ingest: " + rawUrl.substringAfterLast("/").substringBefore("?").take(15)
-                    finalDesc = "Automated Render process for $rawUrl"
+                    finalTitle = if (title.isNotEmpty()) title else "Render Ingest: " + finalSourceUrl.substringAfterLast("/").substringBefore("?").take(15)
+                    finalDesc = "Automated Render process for " + (if (finalSourceUrl != rawUrl) "uploaded file" else rawUrl)
                     
                     val allWordCaptions = backendResponse.clips.flatMap { it.captions ?: emptyList() }
                     finalTranscript = if (allWordCaptions.isNotEmpty()) {
