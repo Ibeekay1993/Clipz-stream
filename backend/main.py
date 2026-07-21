@@ -75,7 +75,7 @@ def download_video_ingest(url: str, out_dir: str) -> str:
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE
 # ============================================================================
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")
 _MODEL = None
 
 def get_model():

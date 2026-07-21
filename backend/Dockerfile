@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir --no-build-isolation openai-whisper==20231117
 # Install the remaining requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -c "import whisper; whisper.load_model('base')"
+RUN python -c "import whisper; whisper.load_model('tiny')"
 
 COPY main.py .
 
