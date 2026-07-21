@@ -9,6 +9,10 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
+import retrofit2.http.Multipart
+import retrofit2.http.Part
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
@@ -41,10 +45,6 @@ data class BackendWordCaption(
     val startMs: Long,
     val endMs: Long
 )
-
-import okhttp3.MultipartBody
-import retrofit2.http.Multipart
-import retrofit2.http.Part
 
 interface BackendApiService {
     @POST("api/process")

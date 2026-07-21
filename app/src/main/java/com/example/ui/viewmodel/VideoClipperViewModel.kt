@@ -18,6 +18,9 @@ import com.example.network.SupabaseApiClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -320,22 +323,22 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
 
             // Check if call should go to our custom FastAPI Render backend first
             if (rawUrl.startsWith("http") || finalSourceUrl != rawUrl) {
-                _loadingState.value = LoadingState.Analyzing(5, "Render API: Routing stream configuration matrix to cloud host...", "")
+                _loadingState.value = LoadingState.Analyzing(5, "Connecting to Cloud Processing...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
                         if (finalSourceUrl != rawUrl) {
                             // We cached a local file, so we upload it via Multipart
                             val file = java.io.File(finalSourceUrl)
-                            val requestFile = okhttp3.RequestBody.create(okhttp3.MediaType.parse("video/*"), file)
+                            val requestFile = file.asRequestBody("video/*".toMediaType())
                             val body = okhttp3.MultipartBody.Part.createFormData("file", file.name, requestFile)
-                            val numClipsPart = okhttp3.RequestBody.create(okhttp3.MediaType.parse("text/plain"), "3")
+                            val numClipsPart = "3".toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
                             // It's a standard HTTP link
                             BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = 3))
                         }
                     }
-                    _loadingState.value = LoadingState.Analyzing(50, "Render API: Local speech engine transcription completed!", "")
+                    _loadingState.value = LoadingState.Analyzing(50, "Finalizing Clips...", "")
                     
                     finalDuration = backendResponse.duration.toLong()
                     finalTitle = if (title.isNotEmpty()) title else "Render Ingest: " + finalSourceUrl.substringAfterLast("/").substringBefore("?").take(15)
@@ -353,8 +356,10 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                         val resolvedUrl = if (clipUrlRaw != null) {
                             if (clipUrlRaw.startsWith("/")) {
                                 "${BackendApiClient.getBaseUrl().removeSuffix("/")}$clipUrlRaw"
-                            } else {
+                            } else if (clipUrlRaw.startsWith("http")) {
                                 clipUrlRaw
+                            } else {
+                                null
                             }
                         } else {
                             null
@@ -374,7 +379,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                     isBackendSuccess = true
                 } catch (e: Exception) {
                     Log.e("BackendApiClient", "Render client connection failed. Falling back gracefully. Exception: ${e.message}", e)
-                    _loadingState.value = LoadingState.Analyzing(10, "Render API Offline: ${e.localizedMessage}. Bootstrapping local transcription engines...", "")
+                    _loadingState.value = LoadingState.Analyzing(10, "Cloud offline, switching to local mode...", "")
                     delay(3000)
                 }
             }
@@ -385,14 +390,14 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 if (true) {
                     val extractedId = extractYoutubeId(rawUrl)
                     if (extractedId != null) {
-                        _loadingState.value = LoadingState.Analyzing(8, "yt-dlp: Resolving remote stream metadata...", "")
+                        _loadingState.value = LoadingState.Analyzing(8, "Importing Video...", "")
                         val fetchedTitle = fetchYoutubeTitle(rawUrl)
                         if (fetchedTitle != null) {
                             finalTitle = fetchedTitle
                             finalDesc = "Automated ingest of YouTube video: $fetchedTitle"
                         }
                         
-                        _loadingState.value = LoadingState.Analyzing(18, "WhisperX: Compiling frame-aligned audio streams...", "")
+                        _loadingState.value = LoadingState.Analyzing(18, "Transcribing Audio & Generating Subtitles...", "")
                         val wordsList = fetchYoutubeTranscript(extractedId)
                         if (wordsList != null && wordsList.isNotEmpty()) {
                             fetchedWords = wordsList
@@ -761,7 +766,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
         val clip = _selectedClip.value
         
         viewModelScope.launch {
-            _exportState.value = ExportState.Exporting(0, "Initiating render configuration...")
+            _exportState.value = ExportState.Exporting(0, "Preparing to export video...")
             
             var localFileUrl = project.sourceUrl
             val cleanUrl = project.sourceUrl.lowercase().substringBefore("?")
@@ -779,7 +784,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                            project.sourceUrl.lowercase().contains("Clipz-stream".lowercase())
             
             if (isHttpVideo && !isPreset) {
-                _exportState.value = ExportState.Exporting(2, "Pulling real video from link to local storage...")
+                _exportState.value = ExportState.Exporting(2, "Downloading high-quality source video...")
                 try {
                     val client = OkHttpClient.Builder()
                         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -811,12 +816,12 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                                                 val mappedProgress = 2 + (progressPct * 0.18f).toInt().coerceIn(0, 18)
                                                 _exportState.value = ExportState.Exporting(
                                                     mappedProgress,
-                                                    "Pulling real video: ${totalBytesRead / (1024 * 1024)}MB / ${contentLength / (1024 * 1024)}MB ($progressPct%)"
+                                                    "Downloading source video: ${totalBytesRead / (1024 * 1024)}MB / ${contentLength / (1024 * 1024)}MB ($progressPct%)"
                                                 )
                                             } else {
                                                 _exportState.value = ExportState.Exporting(
                                                     10,
-                                                    "Pulling real video: ${totalBytesRead / (1024 * 1024)}MB done..."
+                                                    "Downloading source video: ${totalBytesRead / (1024 * 1024)}MB done..."
                                                 )
                                             }
                                         }
@@ -875,10 +880,10 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 // sample MP4 and physically slice it! That way, the user ALWAYS has a 
                 // fully playable, genuine cropped video output.
                 val steps = listOf(
-                    "Video Sync: Downloading benchmark HD reference template...",
-                    "FFmpeg: Aligning video parameters to vertical portrait frames...",
-                    "FFmpeg: Cutting high-density audio vectors...",
-                    "Completed: Real MP4 video successfully generated!"
+                    "Video Sync: Preparing reference template...",
+                    "Video Engine: Formatting to vertical aspect ratio...",
+                    "Audio Engine: Processing tracks...",
+                    "Completed: Final video successfully generated!"
                 )
                 
                 var successFallback = false
@@ -959,7 +964,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                     exportedFilePath = destFile.absolutePath
                 )
             } else {
-                _exportState.value = ExportState.Error("Clipping Engine failed: unable to validate output render file size.")
+                _exportState.value = ExportState.Error("Export failed: Unable to save final video.")
                 delay(1500)
                 _exportState.value = ExportState.Idle
             }

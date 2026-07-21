@@ -1,0 +1,4 @@
+- [x] Update KSP version in `libs.versions.toml`
+- [x] Re-add Kotlin Android plugin to root `build.gradle.kts`
+- [x] Re-add Kotlin Android plugin to `app/build.gradle.kts`
+- [x] Verify fix with Gradle Sync and Build

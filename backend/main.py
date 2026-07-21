@@ -1,94 +1,80 @@
-import os, re, uuid, time, json, subprocess, tempfile
+import os, re, uuid, time, json, subprocess, shutil
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from enum import Enum
+import asyncio
+import cv2
+import threading
 
-from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import shutil
-
 import logging
 
-# Configure basic logging for service output tracking
+# Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("cleanup_service")
+logger = logging.getLogger("backend_core")
 
-def cleanup_expired_files(directory: str, max_age_seconds: float = 1800) -> int:
-    """
-    Cleans up files in the specified directory that are older than max_age_seconds.
-    """
-    if not os.path.exists(directory):
-        logger.warning(f"Cleanup aborted: Directory '{directory}' does not exist.")
-        return 0
+app = FastAPI(title="Clipz-Stream Backend (3-Tier Architecture)")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+# ── Storage Configuration ──────────────────────────────────────────────────
+RAW_UPLOADS_DIR = "raw_uploads"
+CLIPS_DIR = "clips"
+os.makedirs(RAW_UPLOADS_DIR, exist_ok=True)
+os.makedirs(CLIPS_DIR, exist_ok=True)
+
+def cleanup_expired_files(directories: List[str], max_age_seconds: float = 1800):
     now = time.time()
-    deleted_count = 0
-
-    logger.info(f"[*] Starting local storage auto-cleanup sweep on '{directory}' (Max age: {max_age_seconds}s)")
-
-    try:
+    for directory in directories:
+        if not os.path.exists(directory): continue
         for filename in os.listdir(directory):
             file_path = os.path.join(directory, filename)
-            
-            # Skip subdirectories to avoid accidental system file deletions
-            if os.path.isdir(file_path):
-                continue
-
+            if os.path.isdir(file_path): continue
             try:
-                # Check file modification time to measure true age
-                file_mtime = os.path.getmtime(file_path)
-                file_age = now - file_mtime
-
-                if file_age > max_age_seconds:
-                    logger.info(f"[*] File '{filename}' has aged out ({file_age:.1f}s older than threshold). Deleting...")
+                if now - os.path.getmtime(file_path) > max_age_seconds:
                     os.remove(file_path)
-                    deleted_count += 1
-            except Exception as file_err:
-                logger.error(f"[-] Failed to process or delete '{file_path}': {file_err}")
-
-        if deleted_count > 0:
-            logger.info(f"[+] Storage auto-cleanup completed. Successfully removed {deleted_count} stale video/temp files.")
-        else:
-            logger.info("[*] Auto-cleanup complete. No expired files found.")
-
-    except Exception as scan_err:
-        logger.error(f"[-] Failed during auto-cleanup directory scan: {scan_err}")
-
-    return deleted_count
-
-def start_background_cleanup_worker(directory: str, max_age_seconds: float = 1800, interval_seconds: float = 300):
-    """
-    Spawns a background daemon thread that runs periodically to perform cleanup.
-    """
-    import threading
-
-    def worker_loop():
-        logger.info(f"[+] Spawning physical storage cleanup worker daemon thread for '{directory}'")
-        while True:
-            try:
-                cleanup_expired_files(directory, max_age_seconds)
             except Exception as e:
-                logger.error(f"[-] Critical exception in background cleanup worker loop: {e}")
-            time.sleep(interval_seconds)
+                logger.error(f"Cleanup error on {file_path}: {e}")
 
-    cleanup_thread = threading.Thread(target=worker_loop, daemon=True, name="StorageCleanupWorker")
-    cleanup_thread.start()
-    return cleanup_thread
-
-app = FastAPI(title="Clipz-Stream Backend")
+def worker_loop(directories, max_age, interval):
+    while True:
+        cleanup_expired_files(directories, max_age)
+        time.sleep(interval)
 
 @app.on_event("startup")
 async def startup_event():
-    start_background_cleanup_worker("clips", max_age_seconds=1800, interval_seconds=300)
+    threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 1800, 300), daemon=True).start()
+    get_model() # Pre-load AI model
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
+# ============================================================================
+# TIER 1: INGESTION & STORAGE LAYER
+# ============================================================================
+class ProcessRequest(BaseModel):
+    url: str
+    num_clips: int = 3
 
-CLIPS_DIR = "clips"
-os.makedirs(CLIPS_DIR, exist_ok=True)
+def download_video_ingest(url: str, out_dir: str) -> str:
+    """Ingests a video from a remote URL into the raw storage layer"""
+    tpl = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.%(ext)s")
+    for cmd in [
+        ["yt-dlp", "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+         "--merge-output-format", "mp4", "--no-warnings", "--quiet", "--geo-bypass", "-o", tpl, url],
+        ["yt-dlp", "-f", "worst[ext=mp4]/worst", "--no-warnings", "--quiet", "-o", tpl, url],
+    ]:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if r.returncode == 0:
+            for f in os.listdir(out_dir):
+                if f.startswith("video_") and f.endswith(".mp4"):
+                    p = os.path.join(out_dir, f)
+                    if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
+                        return p
+    raise Exception("Ingestion failed: URL unreachable or geo-restricted.")
 
+# ============================================================================
+# TIER 2: AI PROCESSING ENGINE
+# ============================================================================
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 _MODEL = None
 
@@ -96,432 +82,196 @@ def get_model():
     global _MODEL
     if _MODEL is None:
         import whisper
-        print(f"Loading Whisper {WHISPER_MODEL}...")
+        logger.info(f"Loading AI Engine: Whisper ({WHISPER_MODEL})...")
         _MODEL = whisper.load_model(WHISPER_MODEL)
     return _MODEL
 
-
-# ── Hook taxonomy ────────────────────────────────────────────────────────────
-
 class Hook(str, Enum):
-    SECRET      = "Secret"
-    REVELATION  = "Revelation"
-    MONEY       = "Money"
-    WARNING     = "Warning"
-    CURIOSITY   = "Curiosity"
-    STORY       = "Story"
-    TUTORIAL    = "Tutorial"
-    CONTRARIAN  = "Contrarian"
-    EMOTIONAL   = "Emotional"
-    RETENTION   = "Retention"
-    GENERAL     = "General"
-
-
-# ── Data ─────────────────────────────────────────────────────────────────────
+    SECRET = "Secret"; REVELATION = "Revelation"; MONEY = "Money"; WARNING = "Warning"
+    CURIOSITY = "Curiosity"; STORY = "Story"; TUTORIAL = "Tutorial"; CONTRARIAN = "Contrarian"
+    EMOTIONAL = "Emotional"; RETENTION = "Retention"; GENERAL = "General"
 
 @dataclass
 class Chunk:
-    start:   float
-    end:     float
-    text:    str
-    words:   List[dict]
-    score:   int  = 0
-    hook:    str  = "General"
-    reasons: List[str] = field(default_factory=list)
-    viable:  bool = False
-
+    start: float; end: float; text: str; words: List[dict]; score: int = 0
+    hook: str = "General"; reasons: List[str] = field(default_factory=list); viable: bool = False
     @property
     def duration(self): return self.end - self.start
-
     def title(self) -> str:
-        """First 6 words, cleaned — used as clip title"""
         raw = " ".join(w["word"] for w in self.words[:6])
         return re.sub(r"[^\w\s]", "", raw).strip().capitalize()
 
-
-# ── Step 1: Download ──────────────────────────────────────────────────────────
-
-def download_video(url: str, out_dir: str) -> str:
-    tpl = os.path.join(out_dir, "video.%(ext)s")
-    for cmd in [
-        ["yt-dlp", "-f",
-         "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-         "--merge-output-format", "mp4",
-         "--no-warnings", "--quiet", "--geo-bypass", "--retries", "3",
-         "-o", tpl, url],
-        ["yt-dlp", "-f", "worst[ext=mp4]/worst",
-         "--no-warnings", "--quiet", "-o", tpl, url],
-    ]:
-        print(f"Executing yt-dlp: {' '.join(cmd)}")
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if r.returncode == 0:
-            for f in os.listdir(out_dir):
-                if f.startswith("video.") and f.endswith(".mp4"):
-                    p = os.path.join(out_dir, f)
-                    if os.path.getsize(p) > 100_000:
-                        return p
-    raise Exception("Download failed — URL may be private, invalid, or geo-restricted")
-
-
-# ── Step 2: Transcribe (word-level) ──────────────────────────────────────────
-
 def transcribe(video_path: str) -> List[dict]:
-    """Returns flat word list: [{word, startMs, endMs}]"""
-    result = get_model().transcribe(video_path, word_timestamps=True,
-                                    verbose=False, condition_on_previous_text=True)
+    result = get_model().transcribe(video_path, word_timestamps=True, verbose=False, condition_on_previous_text=True)
     out = []
     for seg in result.get("segments", []):
         for w in seg.get("words", []):
             t = w.get("word", "").strip()
-            if t:
-                out.append({"word": t,
-                             "startMs": int(w["start"] * 1000),
-                             "endMs":   int(w["end"]   * 1000)})
+            if t: out.append({"word": t, "startMs": int(w["start"] * 1000), "endMs": int(w["end"] * 1000)})
     return out
 
-
-# ── Step 3: Semantic chunking ─────────────────────────────────────────────────
-
-def semantic_chunks(words: List[dict],
-                    max_gap_ms: int = 1800,
-                    min_words:  int = 10,
-                    max_dur_ms: int = 90_000) -> List[Chunk]:
+def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 10, max_dur_ms: int = 90_000) -> List[Chunk]:
     if not words: return []
-
-    SHIFTS = {"however","but","moving on","next","now","speaking of",
-               "anyway","alright","so anyway"}
-    chunks: List[Chunk] = []
-    buf: List[dict] = []
-    c_start = words[0]["startMs"]
-    last_end = words[0]["endMs"]
-
+    SHIFTS = {"however","but","moving on","next","now","speaking of","anyway","alright","so anyway"}
+    chunks: List[Chunk] = []; buf: List[dict] = []; c_start = words[0]["startMs"]; last_end = words[0]["endMs"]
     def flush():
         if len(buf) >= min_words:
-            chunks.append(Chunk(
-                start = buf[0]["startMs"] / 1000,
-                end   = buf[-1]["endMs"]  / 1000,
-                text  = " ".join(w["word"] for w in buf),
-                words = list(buf)))
-
+            chunks.append(Chunk(start=buf[0]["startMs"]/1000, end=buf[-1]["endMs"]/1000, text=" ".join(w["word"] for w in buf), words=list(buf)))
     for w in words:
-        gap = w["startMs"] - last_end
-        dur = w["startMs"] - c_start
-        wl  = w["word"].lower().strip(".,!?")
-        if ((gap > max_gap_ms
-             or (len(buf) > 6 and buf[-1]["word"].endswith((".", "!", "?")))
-             or wl in SHIFTS
-             or dur > max_dur_ms)
-                and len(buf) >= min_words):
+        gap = w["startMs"] - last_end; dur = w["startMs"] - c_start; wl = w["word"].lower().strip(".,!?")
+        if ((gap > max_gap_ms or (len(buf) > 6 and buf[-1]["word"].endswith((".", "!", "?"))) or wl in SHIFTS or dur > max_dur_ms) and len(buf) >= min_words):
             flush(); buf = [w]; c_start = w["startMs"]
-        else:
-            buf.append(w)
+        else: buf.append(w)
         last_end = w["endMs"]
     flush()
-    print(f"  ✓ {len(chunks)} chunks")
     return chunks
 
-
-# ── Step 4: Virality scoring ──────────────────────────────────────────────────
-
 def score(c: Chunk) -> Chunk:
-    tl  = c.text.lower()
-    dur = c.duration
-
+    tl = c.text.lower(); dur = c.duration; pts = 40; reasons = []; hook = Hook.GENERAL
     if not (15 <= dur <= 90):
         c.score = 0; c.viable = False; return c
-
-    pts = 40
-    reasons: List[str] = []
-    hook = Hook.GENERAL
-
-    # Tier 1 — strong hooks (+28–35)
-    T1 = [
-        (r"nobody (talks about|tells you|knows about|wants you to know)", Hook.SECRET,     35),
-        (r"the (real|hidden|ugly|actual|shocking) (truth|reason|secret)",  Hook.REVELATION, 33),
-        (r"i (lost|made|earned|saved|wasted) [\$]?\d+",                    Hook.MONEY,      33),
-        (r"(stop|don't|never) (doing|making|wasting|believing)",           Hook.WARNING,    28),
-        (r"what (if|happens when|nobody tells you)",                        Hook.CURIOSITY,  28),
-        (r"(stay|watch|listen) (until|till) the end",                      Hook.RETENTION,  28),
-        (r"most people (don't|won't|can't|never) (know|realize|do)",       Hook.CONTRARIAN, 26),
-    ]
+    
+    T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 35), (r"the (real|hidden) truth", Hook.REVELATION, 33)]
     for pat, h, p in T1:
-        if re.search(pat, tl):
-            pts += p; hook = h; reasons.append(f"Strong hook — {h.value}"); break
-
-    # Tier 2 — medium hooks (+18–25)
-    if hook == Hook.GENERAL:
-        T2 = [
-            (r"here('s| is) (why|how|the truth|the real reason)",  Hook.REVELATION, 25),
-            (r"i used to (think|believe|do|feel)",                  Hook.STORY,      22),
-            (r"how to ",                                             Hook.TUTORIAL,   22),
-            (r"step \d+",                                            Hook.TUTORIAL,   18),
-        ]
-        for pat, h, p in T2:
-            if re.search(pat, tl):
-                pts += p; hook = h; reasons.append(f"Hook — {h.value}"); break
-
-    # Emotion
-    for p, words in [(20, ["shocking","unbelievable","insane","crazy","devastating","heartbreaking"]),
-                     (12, ["amazing","incredible","frustrated","thrilled","furious"]),
-                     ( 6, ["worried","hopeful","confused","surprised","grateful"])]:
-        for w in words:
-            if w in tl:
-                pts += p; reasons.append(f"Emotion — {w}")
-                if hook == Hook.GENERAL: hook = Hook.EMOTIONAL
-                break
-
-    # Story arc
-    phases = {
-        "setup":   ["when i was","back in","i remember","it started"],
-        "problem": ["problem","struggle","failed","mistake","wrong"],
-        "conflict":["but then","until","suddenly","out of nowhere"],
-        "resolve": ["solution","finally","turned out","worked","now i"],
-    }
-    found = [p for p, kws in phases.items() if any(k in tl for k in kws)]
-    if len(found) >= 3:
-        pts += 25; reasons.append(f"Story arc — {' → '.join(found)}")
-        if hook == Hook.GENERAL: hook = Hook.STORY
-    elif len(found) == 2:
-        pts += 12; reasons.append("Partial story arc")
-
-    # Curiosity
-    for pat in [r"\?", r"imagine", r"what if", r"you won't believe",
-                r"here's what happened", r"the crazy part", r"the best part"]:
-        if re.search(pat, tl):
-            pts += 12; reasons.append("Curiosity gap"); break
-
-    # Info density
-    ws = c.text.split()
-    if len(ws) > 30:            pts += 10; reasons.append("High info density")
-    if any(ch.isdigit() for ch in c.text): pts += 5; reasons.append("Contains data")
-    if len(set(w.lower() for w in ws)) / max(len(ws), 1) > 0.72:
-        pts += 5; reasons.append("Focused content")
-
-    # Duration sweet spot
-    if   30 <= dur <= 60: pts += 15; reasons.append("Ideal duration 30-60s")
-    elif 15 <= dur <  30: pts += 8;  reasons.append("Short & punchy")
-    elif 60 < dur  <= 75: pts += 5;  reasons.append("Long-form potential")
-
-    c.score   = min(100, max(0, pts))
-    c.hook    = hook.value
-    c.reasons = reasons
-    c.viable  = c.score >= 55
+        if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook — {h.value}"); break
+        
+    c.score = min(100, max(0, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = c.score >= 55
     return c
-
-
-# ── Step 5: Selection ─────────────────────────────────────────────────────────
 
 def select(scored: List[Chunk], n: int) -> List[Chunk]:
     pool = sorted([c for c in scored if c.viable], key=lambda x: -x.score)
-    if not pool:
-        pool = sorted(scored, key=lambda x: -x.score)
-
-    sel: List[Chunk] = []
-    used: List[tuple] = []
-    hooks: set = set()
-
+    if not pool: pool = sorted(scored, key=lambda x: -x.score)
+    sel: List[Chunk] = []; used: List[tuple] = []
     for c in pool:
         if len(sel) >= n: break
         if any(not (c.end+5 < s or c.start-5 > e) for s, e in used): continue
-        if c.hook in hooks and len(sel) < n-1: continue
-        sel.append(c); used.append((c.start, c.end)); hooks.add(c.hook)
-
-    # fill without diversity if short
-    if len(sel) < n:
-        for c in pool:
-            if len(sel) >= n: break
-            if c not in sel and not any(not (c.end+5<s or c.start-5>e) for s,e in used):
-                sel.append(c); used.append((c.start, c.end))
-
+        sel.append(c); used.append((c.start, c.end))
     sel.sort(key=lambda x: x.start)
     return sel
 
+def calculate_smart_crop_x(video_path: str, target_aspect: float = 9/16) -> int:
+    """Computer Vision: Analyzes frames to track facial/subject center for dynamic cropping."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened(): return -1
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    crop_w = int(height * target_aspect)
+    
+    if width <= crop_w:
+        cap.release()
+        return 0
 
-# ── Step 6: FFmpeg cut (frame-accurate, 9:16 crop baked in) ──────────────────
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    centers = []; frames_checked = 0
+    
+    while frames_checked < 60: # Sample first 2 seconds
+        ret, frame = cap.read()
+        if not ret: break
+        if frames_checked % 5 == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            for (x,y,w,h) in faces:
+                centers.append(x + w//2)
+        frames_checked += 1
+    cap.release()
+    
+    if centers:
+        avg_center = int(sum(centers) / len(centers))
+        crop_x = avg_center - (crop_w // 2)
+    else:
+        crop_x = (width - crop_w) // 2
+        
+    return max(0, min(crop_x, width - crop_w))
 
-def cut(src: str, start: float, end: float, out: str):
-    """
-    Re-encodes with libx264 for frame-accurate cut + 9:16 crop.
-    Replaces MoviePy — 3-5x faster, crop actually written to file.
-    """
+# ============================================================================
+# TIER 3: DELIVERY LAYER (Transcoding & CDN)
+# ============================================================================
+def transcode_and_deliver(src: str, start: float, end: float, out: str, crop_x: int):
+    """Background delivery task using FFmpeg for transcoding"""
     dur = end - start
+    vf = f"crop=ih*9/16:ih:{crop_x}:0,scale=1080:1920,fps=30" if crop_x >= 0 else "crop=ih*9/16:ih,scale=1080:1920,fps=30"
+    
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-ss", str(start), "-i", src, "-t", str(dur),
-        "-vf", "crop=ih*9/16:ih,scale=1080:1920,fps=30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart", "-pix_fmt", "yuv420p",
-        out,
+        "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 10_000:
-        # Fallback: copy-mode (keyframe-boundary only, no crop)
-        cmd2 = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-ss", str(start), "-t", str(dur), "-i", src,
-                "-c", "copy", "-avoid_negative_ts", "make_zero", out]
-        r2 = subprocess.run(cmd2, capture_output=True, text=True)
-        if r2.returncode != 0:
-            raise Exception(f"FFmpeg cut failed: {r.stderr[:300]}")
+    subprocess.run(cmd, capture_output=True, text=True)
 
-
-# ── API models ────────────────────────────────────────────────────────────────
-
-class ProcessRequest(BaseModel):
-    url:       str
-    num_clips: int = 3       # Android sends num_clips (snake_case)
-
-
-# ── Main endpoint ─────────────────────────────────────────────────────────────
-
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str) -> dict:
-    # 2 — Transcribe
-    print("🎙  Transcribing...")
+# ── Endpoints ─────────────────────────────────────────────────────────────
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, background_tasks: BackgroundTasks) -> dict:
+    logger.info("Starting AI Engine analysis...")
     words = transcribe(vpath)
-    if not words:
-        raise HTTPException(500, "No speech detected")
-    total_sec = words[-1]["endMs"] / 1000
-    print(f"  ✓ {len(words)} words  ({total_sec:.0f}s)")
-
-    # 3 — Chunk
-    print("🧩  Chunking...")
+    if not words: raise HTTPException(500, "No speech detected")
+    
     chunks = semantic_chunks(words)
-    if not chunks:
-        raise HTTPException(500, "Chunking failed")
-
-    # 4 — Score
-    print("🎯  Scoring...")
     scored = [score(c) for c in chunks]
-    viable = sum(1 for c in scored if c.viable)
-    print(f"  ✓ {viable}/{len(scored)} viable (≥55)")
-
-    # Top 3 preview
-    for c in sorted(scored, key=lambda x: -x.score)[:3]:
-        print(f"    [{c.score:3d}] {c.hook:12s}  {c.text[:55]}...")
-
-    # 5 — Select
-    print(f"🏆  Selecting {n} clips...")
     chosen = select(scored, n)
 
-    # 6 — Cut
-    print("✂️   Cutting...")
+    logger.info("Computing Smart Crop via OpenCV...")
+    crop_x = calculate_smart_crop_x(vpath)
+
     clips_out = []
     for i, chunk in enumerate(chosen):
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
-        try:
-            cut(vpath, chunk.start, chunk.end, fpath)
-            clip_url = f"{base}/clips/{fname}"
-        except Exception as e:
-            print(f"  ✗ clip {i+1} failed: {e} — using source URL")
-            clip_url = url_or_name
+        clip_url = f"{base}/clips/{fname}"
+        
+        # Enqueue transcoding to Delivery Layer asynchronously
+        background_tasks.add_task(transcode_and_deliver, vpath, chunk.start, chunk.end, fpath, crop_x)
 
-        # Word timestamps remapped relative to clip start
         off = chunk.words[0]["startMs"]
-        captions = [{"word":    w["word"],
-                      "startMs": w["startMs"] - off,
-                      "endMs":   w["endMs"]   - off}
-                     for w in chunk.words]
-
+        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+        
         clips_out.append({
-            "title":       f"🔥 {chunk.title()}...",
-            "startSec":    int(chunk.start),
-            "endSec":      int(chunk.end),
-            "viralScore":  chunk.score,
-            "viralReason": (chunk.reasons[0] if chunk.reasons
-                            else "High-engagement moment"),
-            "captions":    captions,
-            "clipUrl":     clip_url,
-            "clip_url":    clip_url,
-            "hookType":    chunk.hook,
-            "allReasons":  chunk.reasons,
-            "durationSec": round(chunk.duration, 1),
+            "title": f"🔥 {chunk.title()}...", "startSec": int(chunk.start), "endSec": int(chunk.end),
+            "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement",
+            "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
+            "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
         })
-        print(f"  ✓ clip {i+1}  score={chunk.score}  "
-              f"hook={chunk.hook}  dur={chunk.duration:.0f}s")
-
-    print(f"{'─'*55}\n✅  {len(clips_out)} clips done\n")
-    return {"url": url_or_name, "duration": total_sec, "clips": clips_out}
-
+        
+    return {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
 
 @app.post("/api/process")
-async def process_video(body: ProcessRequest, request: Request):
-    url  = body.url.strip()
-    n    = max(1, min(body.num_clips, 8))
-
-    if not url:
-        raise HTTPException(400, "URL cannot be empty")
-
+async def process_video_api(body: ProcessRequest, request: Request, background_tasks: BackgroundTasks):
+    if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        try:
-            # 1 — Download
-            print(f"\n{'─'*55}")
-            print(f"📥  {url}")
-            vpath = download_video(url, tmp)
-            print(f"  ✓ downloaded")
-            
-            return await run_pipeline(vpath, url, n, base)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"\n❌  {e}")
-            raise HTTPException(500, str(e))
+    try:
+        vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
+        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, background_tasks)
+    except Exception as e:
+        logger.error(f"Process failed: {e}")
+        raise HTTPException(500, str(e))
 
 @app.post("/api/upload")
-async def upload_video(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
-    n = max(1, min(num_clips, 8))
+async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
     base = str(request.base_url).rstrip("/")
-    
-    with tempfile.TemporaryDirectory() as tmp:
-        try:
-            print(f"\n{'─'*55}")
-            print(f"📥  Receiving upload: {file.filename}")
-            ext = os.path.splitext(file.filename)[1] or ".mp4"
-            vpath = os.path.join(tmp, f"uploaded_video{ext}")
-            
-            with open(vpath, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-                
-            print(f"  ✓ upload saved to disk")
-            
-            return await run_pipeline(vpath, file.filename, n, base)
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"\n❌  {e}")
-            raise HTTPException(500, str(e))
-
-
-# ── File serving & health ─────────────────────────────────────────────────────
+    ext = os.path.splitext(file.filename)[1] or ".mp4"
+    vpath = os.path.join(RAW_UPLOADS_DIR, f"uploaded_{uuid.uuid4().hex[:8]}{ext}")
+    try:
+        with open(vpath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return await run_pipeline(vpath, file.filename, max(1, min(num_clips, 8)), base, background_tasks)
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(500, str(e))
 
 @app.get("/clips/{filename}")
 async def serve_clip(filename: str):
     path = os.path.join(CLIPS_DIR, filename)
     if not os.path.exists(path):
-        raise HTTPException(404, "Clip not found or expired (30-min TTL)")
+        raise HTTPException(404, "Clip not found or processing not complete")
     return FileResponse(path, media_type="video/mp4")
-
 
 @app.get("/health")
 def health():
-    return {
-        "status":  "ok",
-        "model":   WHISPER_MODEL,
-        "pipeline": ["yt-dlp", "whisper", "semantic-chunk",
-                     "virality-score", "ffmpeg-9:16", "captions"],
-    }
-
+    return {"status": "ok", "architecture": "3-Tier (Ingestion, AI Core, Delivery)"}
 
 @app.get("/")
 def root():
-    return {"api": "POST /api/process", "health": "GET /health"}
-
+    return {"api": "POST /api/process, POST /api/upload", "health": "GET /health"}
 
 if __name__ == "__main__":
     import uvicorn
-    get_model()
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

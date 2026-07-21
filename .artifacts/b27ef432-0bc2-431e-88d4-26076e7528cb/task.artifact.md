@@ -1,0 +1,4 @@
+- `[ ]` Update `libs.versions.toml` with `kotlin-android` plugin and compatible KSP version
+- `[ ]` Apply `kotlin-android` plugin in root `build.gradle.kts`
+- `[ ]` Apply `kotlin-android` plugin in `app/build.gradle.kts`
+- `[ ]` Verify the fix by running `:app:compileDebugKotlin`

@@ -817,7 +817,7 @@ fun EditorScreen(
                         captionStyle = captionStyle,
                         panOffset = panOffset,
                         captions = viewModel.getParsedCaptionsForClip(selectedClip),
-                        videoUri = selectedClip?.exportedFilePath?.takeIf { it.isNotBlank() } ?: project!!.sourceUrl,
+                        videoUri = project!!.sourceUrl,
                         onPanOffsetChanged = { viewModel.updatePanOffset(it) },
                         onPanOffsetCommit = { viewModel.commitPanOffset(it) }
                     )
@@ -1335,7 +1335,7 @@ fun EditorScreen(
                         )
 
                         Text(
-                            text = "RENDERING VERTICAL HIGH IMPACT CLIP",
+                            text = "EXPORTING FINAL CLIP...",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             color = PrimaryNeon,
