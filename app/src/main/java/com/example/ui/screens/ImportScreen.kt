@@ -90,6 +90,8 @@ fun ImportScreen(
     var localVideoName by remember { mutableStateOf("") }
     var localVideoDuration by remember { mutableStateOf(0L) }
     
+    var numClips by remember { mutableStateOf(3) }
+    
     val scope = rememberCoroutineScope()
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -242,17 +244,19 @@ fun ImportScreen(
                             ) {
                                 // AI Powered Features Enabled
 
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                                     Text(
-                                        text = "Paste your link below",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextWhite
+                                        text = "Paste a video link to begin",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = TextWhite,
+                                        textAlign = TextAlign.Center
                                     )
                                     Text(
-                                        text = "Valid YouTube, Twitch or online media address",
-                                        fontSize = 11.sp,
-                                        color = TextMuted
+                                        text = "YouTube, Twitch, or online media URLs",
+                                        fontSize = 13.sp,
+                                        color = TextMuted,
+                                        textAlign = TextAlign.Center
                                     )
                                 }
 
@@ -298,74 +302,58 @@ fun ImportScreen(
                                         .testTag("import_video_url_input")
                                 )
 
-                                // Autofill Helper Chips for Lex Fridman, Joe Rogan and Motivation Pro
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                // Minimal Example Link
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Try high retention creator links:",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        text = "Not sure what to clip? ",
+                                        fontSize = 12.sp,
                                         color = TextMuted
                                     )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        listOf(
-                                            Triple("Lex Fridman", "https://www.youtube.com/watch?v=AaMdXZMvT3w", Pair("🤖 Lex Fridman", "AI expert conversation on future software engineering & deep models.")),
-                                            Triple("Joe Rogan", "https://www.youtube.com/watch?v=j9_9v3_Ufbg", Pair("🎙️ Joe Rogan", "Peak performance discussion and continuous focus routines.")),
-                                            Triple("Motivation Pro", "https://www.youtube.com/watch?v=kYfT8O7u_gY", Pair("🔥 Motivation Pro", "Mental endurance tips for high intensity software development."))
-                                        ).forEach { (label, url, meta) ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(ContainerGrey)
-                                                    .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(8.dp))
-                                                    .clickable {
-                                                        inputUrl = url
-                                                        inputTitle = meta.first
-                                                        inputDesc = meta.second
-                                                    }
-                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = label,
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
+                                    Text(
+                                        text = "Try an example: Lex Fridman",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryNeon,
+                                        modifier = Modifier.clickable {
+                                            inputUrl = "https://www.youtube.com/watch?v=AaMdXZMvT3w"
+                                            inputTitle = "🤖 Lex Fridman"
+                                            inputDesc = "AI expert conversation on future software engineering & deep models."
                                         }
-                                    }
+                                    )
                                 }
 
                                 // Toggle manual metadata
                                 Row(
                                     modifier = Modifier
+                                        .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
                                         .clickable { expandedAdvanced = !expandedAdvanced }
-                                        .padding(vertical = 4.dp, horizontal = 4.dp),
+                                        .padding(vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Toggle Settings",
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Advanced Specifications",
+                                        color = TextMuted,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                     Icon(
                                         imageVector = if (expandedAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                         contentDescription = "Toggle Settings",
-                                        tint = PrimaryNeon,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Advanced Video Specifications (Optional)",
-                                        color = PrimaryNeon,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
 
@@ -596,6 +584,42 @@ fun ImportScreen(
                     }
                 }
             }
+            // Number of Clips selector
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Number of Clips to Generate",
+                            fontSize = 14.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "$numClips",
+                            fontSize = 16.sp,
+                            color = PrimaryNeon,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Slider(
+                        value = numClips.toFloat(),
+                        onValueChange = { numClips = it.toInt() },
+                        valueRange = 1f..8f,
+                        steps = 6,
+                        colors = SliderDefaults.colors(
+                            thumbColor = PrimaryNeon,
+                            activeTrackColor = PrimaryNeon,
+                            inactiveTrackColor = Color(0x3B8D8FA6)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
 
             // Unified "Analyse & generate clips" outer CTA
             item {
@@ -611,7 +635,8 @@ fun ImportScreen(
                                     description = d,
                                     sourceUrl = inputUrl,
                                     duration = 120,
-                                    transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast."
+                                    transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast.",
+                                    numClips = numClips
                                 )
                             }
                         } else {
@@ -623,7 +648,8 @@ fun ImportScreen(
                                         description = d,
                                         sourceUrl = uri.toString(),
                                         duration = localVideoDuration,
-                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are processing an uploaded local video file, configuring modern speech components, syncing responsive captions, and exporting short vertical highlights."
+                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are processing an uploaded local video file, configuring modern speech components, syncing responsive captions, and exporting short vertical highlights.",
+                                        numClips = numClips
                                     )
                             }
                         }
@@ -648,10 +674,10 @@ fun ImportScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Analyse & generate clips",
+                        text = "Generate Viral Clips",
                         color = if (buttonEnabled) Color.Black else TextMuted,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         letterSpacing = 0.5.sp
                     )
                 }

@@ -259,7 +259,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
     }
 
     // Main Import action mapping Lex Fridman / Opus clips
-    fun importVideo(title: String, description: String, sourceUrl: String, duration: Long, transcript: String) {
+    fun importVideo(title: String, description: String, sourceUrl: String, duration: Long, transcript: String, numClips: Int = 3) {
         viewModelScope.launch {
             _loadingState.value = LoadingState.Analyzing(0, "yt-dlp: Ingesting high-definition source stream...", "")
             delay(800)
@@ -331,11 +331,11 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             val file = java.io.File(finalSourceUrl)
                             val requestFile = file.asRequestBody("video/*".toMediaType())
                             val body = okhttp3.MultipartBody.Part.createFormData("file", file.name, requestFile)
-                            val numClipsPart = "3".toRequestBody("text/plain".toMediaType())
+                            val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
                             // It's a standard HTTP link
-                            BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = 3))
+                            BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = numClips))
                         }
                     }
                     _loadingState.value = LoadingState.Analyzing(50, "Finalizing Clips...", "")
@@ -858,77 +858,66 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 (localFileUrl.startsWith("http") && (localFileUrl.lowercase().endsWith(".mp4") || localFileUrl.lowercase().endsWith(".mkv")))
             )
 
+            val isBackendClip = clip?.exportedFilePath?.startsWith("http") == true
+
             val destFile = File(
                 getApplication<Application>().getExternalFilesDir(null),
                 "ClipClipper_${System.currentTimeMillis()}.mp4"
             )
 
-            val isSuccessTrim = if (isReal) {
-                com.example.processor.VideoProcessingEngine.trimVideoWithEnforcement(
+            var isSuccessTrim = false
+
+            if (isBackendClip) {
+                // Direct download of the already processed 9:16 OpenCV backend clip!
+                try {
+                    _exportState.value = ExportState.Exporting(20, "Downloading finished vertical clip from backend...")
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    val req = Request.Builder().url(clip!!.exportedFilePath).build()
+                    val res = withContext(Dispatchers.IO) { client.newCall(req).execute() }
+                    if (res.isSuccessful && res.body != null) {
+                        res.body!!.byteStream().use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                val buffer = ByteArray(128 * 1024)
+                                var totalBytesRead = 0L
+                                val contentLength = res.body!!.contentLength()
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    totalBytesRead += bytesRead
+                                    if (contentLength > 0) {
+                                        val progressPct = (totalBytesRead * 100 / contentLength).toInt()
+                                        _exportState.value = ExportState.Exporting(
+                                            20 + (progressPct * 0.8f).toInt(),
+                                            "Downloading: $progressPct%"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (destFile.exists() && destFile.length() > 1000) {
+                            isSuccessTrim = true
+                        }
+                    } else {
+                        Log.e("VideoClipperViewModel", "Failed to download backend clip. HTTP ${res.code}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("VideoClipperViewModel", "Failed to download backend clip: ${e.message}", e)
+                }
+            } else if (isReal) {
+                isSuccessTrim = com.example.processor.VideoProcessingEngine.trimVideoWithEnforcement(
                     getApplication(),
                     videoUri,
                     trimStartSec.value * 1000L,
                     trimEndSec.value * 1000L,
                     destFile
                 ) { progress, status ->
-                    // Map processing progress (0-100) to the screen
                     _exportState.value = ExportState.Exporting(progress, status)
                 }
             } else {
-                // Pre-baked rendering simulation stages for presets/YouTube streams:
-                // Instead of writing a corrupted text dummy, we download a high-definition 
-                // sample MP4 and physically slice it! That way, the user ALWAYS has a 
-                // fully playable, genuine cropped video output.
-                val steps = listOf(
-                    "Video Sync: Preparing reference template...",
-                    "Video Engine: Formatting to vertical aspect ratio...",
-                    "Audio Engine: Processing tracks...",
-                    "Completed: Final video successfully generated!"
-                )
-                
-                var successFallback = false
-                try {
-                    _exportState.value = ExportState.Exporting(10, steps[0])
-                    val fallbackSource = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
-                    val client = OkHttpClient.Builder()
-                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
-                    val req = Request.Builder().url(fallbackSource).build()
-                    val res = withContext(Dispatchers.IO) { client.newCall(req).execute() }
-                    
-                    if (res.isSuccessful && res.body != null) {
-                        _exportState.value = ExportState.Exporting(30, steps[1])
-                        val tempDownloadedFile = File(
-                            getApplication<Application>().getExternalFilesDir(null),
-                            "temp_benchmark_sample.mp4"
-                        )
-                        res.body!!.byteStream().use { input ->
-                            FileOutputStream(tempDownloadedFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        
-                        _exportState.value = ExportState.Exporting(60, steps[2])
-                        if (tempDownloadedFile.exists() && tempDownloadedFile.length() > 1000) {
-                            successFallback = com.example.processor.VideoProcessingEngine.trimVideoWithEnforcement(
-                                getApplication(),
-                                Uri.fromFile(tempDownloadedFile),
-                                trimStartSec.value * 1000L,
-                                trimEndSec.value * 1000L,
-                                destFile
-                            ) { progress, status ->
-                                _exportState.value = ExportState.Exporting(60 + (progress * 0.35f).toInt(), status)
-                            }
-                        }
-                    }
-                } catch (fallbackEx: Exception) {
-                    Log.e("VideoClipperViewModel", "Benchmark fallback trim failed: ${fallbackEx.message}")
-                }
-                
-                if (!successFallback) {
-                    Log.w("VideoClipperViewModel", "Benchmark fallback trim failed cleanly, no mock fallback written.")
-                }
-                true
+                Log.e("VideoClipperViewModel", "Source video is not real and not a backend clip.")
             }
 
             if (isSuccessTrim && destFile.exists()) {
