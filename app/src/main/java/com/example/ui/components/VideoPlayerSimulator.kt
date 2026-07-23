@@ -44,6 +44,8 @@ import android.net.Uri
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private class PositionRef(var value: Long)
 private class PlaybackStateRef(var isPlaying: Boolean? = null)
@@ -154,9 +156,39 @@ fun VideoPlayerSimulator(
             )
         }
 
-        val resolvedUri = remember(videoUri) {
+        var cachedLocalUri by remember(videoUri) { mutableStateOf<Uri?>(null) }
+
+        LaunchedEffect(videoUri) {
+            if (videoUri.startsWith("http") && (videoUri.contains(".mp4") || videoUri.contains("clips"))) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val fileName = "cached_" + videoUri.substringAfterLast("/").substringBefore("?")
+                        val cacheFile = java.io.File(context.cacheDir, fileName)
+                        if (cacheFile.exists() && cacheFile.length() > 10000) {
+                            cachedLocalUri = Uri.fromFile(cacheFile)
+                        } else {
+                            val url = java.net.URL(videoUri)
+                            url.openStream().use { input ->
+                                java.io.FileOutputStream(cacheFile).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            if (cacheFile.exists() && cacheFile.length() > 10000) {
+                                cachedLocalUri = Uri.fromFile(cacheFile)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("VideoPlayerSimulator", "Failed to cache video: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        val resolvedUri = remember(videoUri, cachedLocalUri) {
             try {
-                if (videoUri.startsWith("/")) {
+                if (cachedLocalUri != null) {
+                    cachedLocalUri!!
+                } else if (videoUri.startsWith("/")) {
                     Uri.fromFile(java.io.File(videoUri))
                 } else {
                     Uri.parse(videoUri)
