@@ -817,7 +817,7 @@ fun EditorScreen(
                         captionStyle = captionStyle,
                         panOffset = panOffset,
                         captions = viewModel.getParsedCaptionsForClip(selectedClip),
-                        videoUri = project!!.sourceUrl,
+                        videoUri = selectedClip?.exportedFilePath ?: project!!.sourceUrl,
                         onPanOffsetChanged = { viewModel.updatePanOffset(it) },
                         onPanOffsetCommit = { viewModel.commitPanOffset(it) }
                     )
