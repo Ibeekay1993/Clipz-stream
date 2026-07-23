@@ -1,9 +1,10 @@
-import os, re, uuid, time, subprocess, shutil
+import os, re, uuid, time, subprocess, shutil, json
 from dataclasses import dataclass, field
 from typing import List
 from enum import Enum
 import threading
 import logging
+import yt_dlp
 
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,14 +40,13 @@ def cleanup_expired_files(directories: List[str], max_age_seconds: float = 1800)
     now = time.time()
     for directory in directories:
         if not os.path.exists(directory): continue
-        for filename in os.listdir(directory):
-            file_path = os.path.join(directory, filename)
-            if os.path.isdir(file_path): continue
+        for fname in os.listdir(directory):
+            fpath = os.path.join(directory, fname)
             try:
-                if now - os.path.getmtime(file_path) > max_age_seconds:
-                    os.remove(file_path)
+                if os.path.isfile(fpath) and (now - os.path.getmtime(fpath)) > max_age_seconds:
+                    os.remove(fpath)
             except Exception as e:
-                logger.error(f"Cleanup error on {file_path}: {e}")
+                logger.warning(f"Failed to delete {fpath}: {e}")
 
 def worker_loop(directories, max_age, interval):
     while True:
@@ -67,20 +67,42 @@ class ProcessRequest(BaseModel):
     num_clips: int = 3
 
 def download_video_ingest(url: str, out_dir: str) -> str:
-    tpl = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.%(ext)s")
-    for cmd in [
-        ["yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-         "--merge-output-format", "mp4", "--no-warnings", "--quiet", "--geo-bypass", "-o", tpl, url],
-        ["yt-dlp", "-f", "worst[ext=mp4]/worst", "--no-warnings", "--quiet", "-o", tpl, url],
-    ]:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if r.returncode == 0:
-            for f in os.listdir(out_dir):
-                if f.startswith("video_") and f.endswith(".mp4"):
-                    p = os.path.join(out_dir, f)
-                    if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
-                        return p
-    raise Exception("Ingestion failed: URL unreachable or geo-restricted.")
+    out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
+    clients_attempts = [
+        ['ios', 'mweb'],
+        ['tv_embedded', 'android'],
+        ['web', 'mweb']
+    ]
+    for client_list in clients_attempts:
+        ydl_opts = {
+            'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+            'outtmpl': out_file,
+            'quiet': True,
+            'no_warnings': True,
+            'merge_output_format': 'mp4',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': client_list
+                }
+            }
+        }
+        try:
+            logger.info(f"Downloading YouTube video via yt_dlp with clients {client_list}: {url}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
+                return out_file
+        except Exception as e:
+            logger.warning(f"Client list {client_list} failed: {e}")
+            
+    # Check if file was saved under slightly different extension
+    for f in os.listdir(out_dir):
+        if f.startswith("video_"):
+            p = os.path.join(out_dir, f)
+            if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
+                return p
+
+    raise Exception(f"Ingestion failed for {url}. YouTube datacenter bot restriction. Please use the Upload Video tab.")
 
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
@@ -165,21 +187,76 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel: List[Chunk] = []; used: List[tuple] = []
     for c in pool:
         if len(sel) >= n: break
-        if any(not (c.end+3 < s or c.start-3 > e) for s, e in used): continue
+        # Smart Deduplication: ensure minimum 5.0 second gap between clips
+        if any(not (c.end + 5.0 < s or c.start - 5.0 > e) for s, e in used): continue
         sel.append(c); used.append((c.start, c.end))
     sel.sort(key=lambda x: x.start)
     return sel
 
+def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str):
+    """Generates an ASS subtitle file with kinetic word highlighting and bold stroke outline"""
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,36,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,20,20,160,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    lines_events = []
+    group = []
+    clip_words = [w for w in words if (w.get("startMs", 0)/1000.0) >= clip_start_sec - 0.5]
+    
+    for i, w in enumerate(clip_words):
+        group.append(w)
+        if len(group) >= 4 or i == len(clip_words) - 1:
+            line_start_sec = max(0, (group[0]["startMs"] / 1000.0) - clip_start_sec)
+            line_end_sec = max(line_start_sec + 0.4, (group[-1]["endMs"] / 1000.0) - clip_start_sec)
+            
+            def format_time(sec):
+                hrs = int(sec // 3600)
+                mins = int((sec % 3600) // 60)
+                secs = int(sec % 60)
+                cs = int((sec % 1) * 100)
+                return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
+            
+            start_str = format_time(line_start_sec)
+            end_str = format_time(line_end_sec)
+            line_text = " ".join(str(w.get("word", "")).upper() for w in group)
+            event_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\c&H0000FFFF&}}{line_text}"
+            lines_events.append(event_line)
+            group = []
+            
+    with open(ass_out_path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(lines_events))
+
 # ============================================================================
 # TIER 3: DELIVERY LAYER (FFmpeg Safe Crop & Supabase)
 # ============================================================================
-def transcode_and_upload(src: str, start: float, end: float, out: str) -> str:
-    """Safe FFmpeg crop + Supabase CDN Upload"""
+def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None) -> str:
+    """Safe FFmpeg crop + ASS Kinetic Burned-In Subtitles + Supabase CDN Upload"""
     dur = end - start
     
-    # 720p 9:16 Crop: Fast encoding, clean vertical fit
-    vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30"
-    
+    # Generate ASS Subtitle File if words provided
+    ass_path = out + ".ass"
+    use_subtitles = False
+    if words:
+        try:
+            generate_ass_file(words, start, ass_path)
+            use_subtitles = os.path.exists(ass_path)
+        except Exception as e:
+            logger.warning(f"ASS subtitle generation failed: {e}")
+            
+    if use_subtitles:
+        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+        vf = f"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,subtitles='{escaped_ass}',fps=30"
+    else:
+        vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30"
+        
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-ss", str(start), "-i", src, "-t", str(dur),
@@ -187,6 +264,9 @@ def transcode_and_upload(src: str, start: float, end: float, out: str) -> str:
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
     ]
     subprocess.run(cmd, capture_output=True, text=True, check=True)
+    if os.path.exists(ass_path):
+        try: os.remove(ass_path)
+        except: pass
 
     # Upload to Supabase Storage
     if supabase:
@@ -290,7 +370,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         fpath = os.path.join(CLIPS_DIR, fname)
         
         try:
-            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath)
+            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words)
             if clip_url.startswith("/clips/"):
                 clip_url = f"{base}{clip_url}"
                 
