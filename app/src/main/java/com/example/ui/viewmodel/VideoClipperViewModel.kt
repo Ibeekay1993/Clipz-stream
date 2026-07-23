@@ -378,9 +378,20 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                     }
                     isBackendSuccess = true
                 } catch (e: Exception) {
-                    Log.e("BackendApiClient", "Render client connection failed. Falling back gracefully. Exception: ${e.message}", e)
-                    _loadingState.value = LoadingState.Analyzing(10, "Cloud offline, switching to local mode...", "")
-                    delay(3000)
+                    Log.e("BackendApiClient", "Modal processing error: ${e.message}", e)
+                    var errorMsg = e.message ?: "Cloud connection error"
+                    if (e is retrofit2.HttpException) {
+                        try {
+                            val errBody = e.response()?.errorBody()?.string()
+                            if (!errBody.isNullOrBlank()) {
+                                errorMsg = "Backend Error: $errBody"
+                            }
+                        } catch (t: Throwable) {
+                            errorMsg = "Backend Error (${e.code()})"
+                        }
+                    }
+                    _loadingState.value = LoadingState.Error(errorMsg)
+                    return@launch
                 }
             }
 

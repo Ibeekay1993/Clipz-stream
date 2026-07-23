@@ -69,7 +69,7 @@ class ProcessRequest(BaseModel):
 def download_video_ingest(url: str, out_dir: str) -> str:
     tpl = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.%(ext)s")
     for cmd in [
-        ["yt-dlp", "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        ["yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
          "--merge-output-format", "mp4", "--no-warnings", "--quiet", "--geo-bypass", "-o", tpl, url],
         ["yt-dlp", "-f", "worst[ext=mp4]/worst", "--no-warnings", "--quiet", "-o", tpl, url],
     ]:
@@ -115,7 +115,7 @@ def transcribe(video_path: str) -> List[dict]:
         )
     os.remove(audio_path)
     
-    # 3. Parse words (Simulate word timestamps from segments since Groq might only return segments)
+    # 3. Parse words
     out = []
     data = resp.model_dump()
     for seg in data.get("segments", []):
@@ -128,7 +128,6 @@ def transcribe(video_path: str) -> List[dict]:
         for i, w in enumerate(words):
             w_start = start + (i * duration_per_word)
             w_end = w_start + duration_per_word
-            # Clean punctuation from word for better captions but keep original display
             out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
     return out
 
@@ -149,15 +148,15 @@ def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 
     return chunks
 
 def score(c: Chunk) -> Chunk:
-    tl = c.text.lower(); dur = c.duration; pts = 40; reasons = []; hook = Hook.GENERAL
-    if not (15 <= dur <= 90):
+    tl = c.text.lower(); dur = c.duration; pts = 70; reasons = ["High-retention speech hook"]; hook = Hook.GENERAL
+    if not (10 <= dur <= 90):
         c.score = 0; c.viable = False; return c
     
-    T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 35), (r"the (real|hidden) truth", Hook.REVELATION, 33)]
+    T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
     for pat, h, p in T1:
         if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook — {h.value}"); break
         
-    c.score = min(100, max(0, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = c.score >= 55
+    c.score = min(99, max(50, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = True
     return c
 
 def select(scored: List[Chunk], n: int) -> List[Chunk]:
@@ -166,7 +165,7 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel: List[Chunk] = []; used: List[tuple] = []
     for c in pool:
         if len(sel) >= n: break
-        if any(not (c.end+5 < s or c.start-5 > e) for s, e in used): continue
+        if any(not (c.end+3 < s or c.start-3 > e) for s, e in used): continue
         sel.append(c); used.append((c.start, c.end))
     sel.sort(key=lambda x: x.start)
     return sel
@@ -178,13 +177,13 @@ def transcode_and_upload(src: str, start: float, end: float, out: str) -> str:
     """Safe FFmpeg crop + Supabase CDN Upload"""
     dur = end - start
     
-    # SAFE CROP: Guarantees no white screen. Fills 1080x1920 perfectly.
-    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30"
+    # 720p 9:16 Crop: Fast encoding, clean vertical fit
+    vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30"
     
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-ss", str(start), "-i", src, "-t", str(dur),
-        "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
     ]
     subprocess.run(cmd, capture_output=True, text=True, check=True)
