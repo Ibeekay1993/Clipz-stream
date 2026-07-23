@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -397,19 +398,57 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                     isBackendSuccess = true
                 } catch (e: Exception) {
                     Log.e("BackendApiClient", "Modal processing error: ${e.message}", e)
-                    var errorMsg = e.message ?: "Cloud connection error"
-                    if (e is retrofit2.HttpException) {
+                    // On-Device Fallback for YouTube URLs when cloud datacenter is blocked
+                    val ytId = extractYoutubeId(rawUrl)
+                    if (ytId != null && finalSourceUrl == rawUrl) {
                         try {
-                            val errBody = e.response()?.errorBody()?.string()
-                            if (!errBody.isNullOrBlank()) {
-                                errorMsg = "Backend Error: $errBody"
+                            _loadingState.value = LoadingState.Analyzing(10, "Bypassing YouTube blocks on device...", "")
+                            val onDeviceFile = downloadYoutubeMediaOnDevice(getApplication(), rawUrl)
+                            if (onDeviceFile != null && onDeviceFile.exists()) {
+                                _loadingState.value = LoadingState.Analyzing(25, "Uploading resolved video to AI Engine...", "")
+                                val requestFile = onDeviceFile.asRequestBody("video/*".toMediaType())
+                                val body = okhttp3.MultipartBody.Part.createFormData("file", onDeviceFile.name, requestFile)
+                                val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
+                                val backendResponse = withContext(Dispatchers.IO) {
+                                    BackendApiClient.service.uploadVideo(body, numClipsPart)
+                                }
+                                finalDuration = backendResponse.duration.toLong()
+                                finalTitle = if (title.isNotEmpty()) title else "YouTube Ingest: " + rawUrl.substringAfterLast("=").take(12)
+                                finalDesc = "Automated On-Device YouTube Ingest for " + rawUrl
+                                val allWordCaptions = backendResponse.clips.flatMap { it.captions ?: emptyList() }
+                                finalTranscript = if (allWordCaptions.isNotEmpty()) allWordCaptions.joinToString(" ") { it.word } else "Speech transcript"
+                                backendClipsList = backendResponse.clips.map { c ->
+                                    val clipUrlRaw = c.clipUrl
+                                    val resolvedUrl = if (clipUrlRaw?.startsWith("/") == true) "${BackendApiClient.getBaseUrl().removeSuffix("/")}$clipUrlRaw" else clipUrlRaw
+                                    Clip(
+                                        projectId = 0, title = c.title, startSec = c.startSec, endSec = c.endSec,
+                                        viralScore = c.viralScore, viralReason = c.viralReason,
+                                        captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList()),
+                                        isExported = resolvedUrl != null, exportedFilePath = resolvedUrl
+                                    )
+                                }
+                                isBackendSuccess = true
                             }
-                        } catch (t: Throwable) {
-                            errorMsg = "Backend Error (${e.code()})"
+                        } catch (fallbackErr: Exception) {
+                            Log.e("BackendApiClient", "On-device YouTube fallback error: ${fallbackErr.message}")
                         }
                     }
-                    _loadingState.value = LoadingState.Error(errorMsg)
-                    return@launch
+
+                    if (!isBackendSuccess) {
+                        var errorMsg = e.message ?: "Cloud connection error"
+                        if (e is retrofit2.HttpException) {
+                            try {
+                                val errBody = e.response()?.errorBody()?.string()
+                                if (!errBody.isNullOrBlank()) {
+                                    errorMsg = "Backend Error: $errBody"
+                                }
+                            } catch (t: Throwable) {
+                                errorMsg = "Backend Error (${e.code()})"
+                            }
+                        }
+                        _loadingState.value = LoadingState.Error(errorMsg)
+                        return@launch
+                    }
                 }
             }
 
@@ -1226,6 +1265,59 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 delay(2500)
                 _loadingState.value = LoadingState.Idle
             }
+        }
+    }
+
+    private suspend fun downloadYoutubeMediaOnDevice(context: Context, videoUrl: String): File? = withContext(Dispatchers.IO) {
+        try {
+            val videoId = extractYoutubeId(videoUrl) ?: return@withContext null
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+                
+            val instances = listOf("https://invidious.nerdvpn.de", "https://inv.hostux.net", "https://api.piped.video")
+            var mediaStreamUrl: String? = null
+            for (inst in instances) {
+                try {
+                    val req = Request.Builder().url("$inst/api/v1/videos/$videoId").header("User-Agent", "Mozilla/5.0").build()
+                    val response = client.newCall(req).execute()
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        response.close()
+                        val match = Regex(""""url":\s*"([^"]+)"""").find(body)
+                        if (match != null) {
+                            mediaStreamUrl = match.groupValues[1]
+                            break
+                        }
+                    } else {
+                        response.close()
+                    }
+                } catch (e: Exception) { continue }
+            }
+            
+            if (mediaStreamUrl != null) {
+                val file = File(context.cacheDir, "yt_${videoId}.mp4")
+                val req = Request.Builder().url(mediaStreamUrl!!).build()
+                val response = client.newCall(req).execute()
+                if (response.isSuccessful && response.body != null) {
+                    val inputStream = response.body!!.byteStream()
+                    val outputStream = FileOutputStream(file)
+                    inputStream.use { input ->
+                        outputStream.use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    response.close()
+                    if (file.exists() && file.length() > 50_000) return@withContext file
+                } else {
+                    response.close()
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
         }
     }
 
