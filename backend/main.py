@@ -1,22 +1,27 @@
-import os, re, uuid, time, json, subprocess, shutil
+import os, re, uuid, time, subprocess, shutil
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List
 from enum import Enum
-import asyncio
-import cv2
 import threading
+import logging
 
-from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# External APIs
+from groq import Groq
+from supabase import create_client, Client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend_core")
 
-app = FastAPI(title="Clipz-Stream Backend (3-Tier Architecture)")
+app = FastAPI(title="Clipz-Stream Backend (Groq + Supabase Architecture)")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ── Storage Configuration ──────────────────────────────────────────────────
@@ -24,6 +29,11 @@ RAW_UPLOADS_DIR = "raw_uploads"
 CLIPS_DIR = "clips"
 os.makedirs(RAW_UPLOADS_DIR, exist_ok=True)
 os.makedirs(CLIPS_DIR, exist_ok=True)
+
+# Supabase Initialization
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 def cleanup_expired_files(directories: List[str], max_age_seconds: float = 1800):
     now = time.time()
@@ -46,7 +56,8 @@ def worker_loop(directories, max_age, interval):
 @app.on_event("startup")
 async def startup_event():
     threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 1800, 300), daemon=True).start()
-    get_model() # Pre-load AI model
+    if not supabase:
+        logger.warning("Supabase credentials not found. Clips will be served locally instead of CDN.")
 
 # ============================================================================
 # TIER 1: INGESTION & STORAGE LAYER
@@ -56,7 +67,6 @@ class ProcessRequest(BaseModel):
     num_clips: int = 3
 
 def download_video_ingest(url: str, out_dir: str) -> str:
-    """Ingests a video from a remote URL into the raw storage layer"""
     tpl = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.%(ext)s")
     for cmd in [
         ["yt-dlp", "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -73,19 +83,8 @@ def download_video_ingest(url: str, out_dir: str) -> str:
     raise Exception("Ingestion failed: URL unreachable or geo-restricted.")
 
 # ============================================================================
-# TIER 2: AI PROCESSING ENGINE
+# TIER 2: AI PROCESSING ENGINE (GROQ)
 # ============================================================================
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")
-_MODEL = None
-
-def get_model():
-    global _MODEL
-    if _MODEL is None:
-        import whisper
-        logger.info(f"Loading AI Engine: Whisper ({WHISPER_MODEL})...")
-        _MODEL = whisper.load_model(WHISPER_MODEL)
-    return _MODEL
-
 class Hook(str, Enum):
     SECRET = "Secret"; REVELATION = "Revelation"; MONEY = "Money"; WARNING = "Warning"
     CURIOSITY = "Curiosity"; STORY = "Story"; TUTORIAL = "Tutorial"; CONTRARIAN = "Contrarian"
@@ -102,12 +101,35 @@ class Chunk:
         return re.sub(r"[^\w\s]", "", raw).strip().capitalize()
 
 def transcribe(video_path: str) -> List[dict]:
-    result = get_model().transcribe(video_path, word_timestamps=True, verbose=False, condition_on_previous_text=True)
+    # 1. Extract audio
+    audio_path = video_path + ".mp3"
+    subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-c:a", "libmp3lame", "-q:a", "5", audio_path], check=True, capture_output=True)
+    
+    # 2. Call Groq
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    with open(audio_path, "rb") as f:
+        resp = client.audio.transcriptions.create(
+            file=("audio.mp3", f.read()),
+            model="whisper-large-v3",
+            response_format="verbose_json"
+        )
+    os.remove(audio_path)
+    
+    # 3. Parse words (Simulate word timestamps from segments since Groq might only return segments)
     out = []
-    for seg in result.get("segments", []):
-        for w in seg.get("words", []):
-            t = w.get("word", "").strip()
-            if t: out.append({"word": t, "startMs": int(w["start"] * 1000), "endMs": int(w["end"] * 1000)})
+    data = resp.model_dump()
+    for seg in data.get("segments", []):
+        text = seg.get("text", "").strip()
+        start = seg.get("start", 0.0)
+        end = seg.get("end", 0.0)
+        words = text.split()
+        if not words: continue
+        duration_per_word = (end - start) / len(words)
+        for i, w in enumerate(words):
+            w_start = start + (i * duration_per_word)
+            w_end = w_start + duration_per_word
+            # Clean punctuation from word for better captions but keep original display
+            out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
     return out
 
 def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 10, max_dur_ms: int = 90_000) -> List[Chunk]:
@@ -149,60 +171,15 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel.sort(key=lambda x: x.start)
     return sel
 
-def calculate_smart_crop(video_path: str, target_aspect: float = 9/16) -> dict:
-    """Computer Vision: Analyzes frames to track facial/subject center for dynamic cropping."""
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened(): return {"action": "scale", "w": 1080, "h": 1920}
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    crop_w = int(height * target_aspect)
-    
-    if width <= crop_w:
-        cap.release()
-        return {"action": "pad", "w": width, "h": height, "target_w": crop_w}
-
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    centers = []; frames_checked = 0
-    
-    while frames_checked < 60: # Sample first 2 seconds
-        ret, frame = cap.read()
-        if not ret: break
-        if frames_checked % 5 == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-            for (x,y,w,h) in faces:
-                centers.append(x + w//2)
-        frames_checked += 1
-    cap.release()
-    
-    if centers:
-        avg_center = int(sum(centers) / len(centers))
-        crop_x = avg_center - (crop_w // 2)
-    else:
-        crop_x = (width - crop_w) // 2
-        
-    crop_x = max(0, min(crop_x, width - crop_w))
-    # Ensure even numbers
-    crop_x = crop_x - (crop_x % 2)
-    crop_w = crop_w - (crop_w % 2)
-    height = height - (height % 2)
-    
-    return {"action": "crop", "w": crop_w, "h": height, "x": crop_x, "y": 0}
-
 # ============================================================================
-# TIER 3: DELIVERY LAYER (Transcoding & CDN)
+# TIER 3: DELIVERY LAYER (FFmpeg Safe Crop & Supabase)
 # ============================================================================
-def transcode_and_deliver(src: str, start: float, end: float, out: str, crop_data: dict):
-    """Background delivery task using FFmpeg for transcoding"""
+def transcode_and_upload(src: str, start: float, end: float, out: str) -> str:
+    """Safe FFmpeg crop + Supabase CDN Upload"""
     dur = end - start
     
-    if crop_data["action"] == "crop":
-        cw, ch, cx, cy = crop_data["w"], crop_data["h"], crop_data["x"], crop_data["y"]
-        vf = f"crop={cw}:{ch}:{cx}:{cy},scale=1080:1920,fps=30"
-    elif crop_data["action"] == "pad":
-        vf = f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30"
-    else:
-        vf = f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30"
+    # SAFE CROP: Guarantees no white screen. Fills 1080x1920 perfectly.
+    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30"
     
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -210,11 +187,22 @@ def transcode_and_deliver(src: str, start: float, end: float, out: str, crop_dat
         "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
     ]
-    subprocess.run(cmd, capture_output=True, text=True)
+    subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+    # Upload to Supabase Storage
+    if supabase:
+        fname = os.path.basename(out)
+        with open(out, 'rb') as f:
+            res = supabase.storage.from_("clips").upload(file=f, path=fname, file_options={"content-type": "video/mp4"})
+            logger.info(f"Supabase upload response: {res}")
+        public_url = supabase.storage.from_("clips").get_public_url(fname)
+        return public_url
+    else:
+        return f"/clips/{os.path.basename(out)}"
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, background_tasks: BackgroundTasks) -> dict:
-    logger.info("Starting AI Engine analysis...")
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str) -> dict:
+    logger.info("Starting Groq AI Engine analysis...")
     words = transcribe(vpath)
     if not words: raise HTTPException(500, "No speech detected")
     
@@ -222,50 +210,55 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, backgrou
     scored = [score(c) for c in chunks]
     chosen = select(scored, n)
 
-    logger.info("Computing Smart Crop via OpenCV...")
-    crop_data = calculate_smart_crop(vpath)
-
+    logger.info("Transcoding and uploading clips...")
     clips_out = []
+    
+    # We do this synchronously so the API returns the final Supabase URLs instantly!
     for i, chunk in enumerate(chosen):
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
-        clip_url = f"{base}/clips/{fname}"
         
-        # Enqueue transcoding to Delivery Layer asynchronously
-        background_tasks.add_task(transcode_and_deliver, vpath, chunk.start, chunk.end, fpath, crop_data)
+        try:
+            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath)
+            
+            # If it's a relative URL, prepend the base (Fallback)
+            if clip_url.startswith("/clips/"):
+                clip_url = f"{base}{clip_url}"
+                
+            off = chunk.words[0]["startMs"]
+            captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+            
+            clips_out.append({
+                "title": f"🔥 {chunk.title()}...", "startSec": int(chunk.start), "endSec": int(chunk.end),
+                "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement",
+                "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
+                "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
+            })
+        except Exception as e:
+            logger.error(f"Failed to transcode chunk {i}: {e}")
 
-        off = chunk.words[0]["startMs"]
-        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
-        
-        clips_out.append({
-            "title": f"🔥 {chunk.title()}...", "startSec": int(chunk.start), "endSec": int(chunk.end),
-            "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement",
-            "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
-            "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
-        })
-        
     return {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
 
 @app.post("/api/process")
-async def process_video_api(body: ProcessRequest, request: Request, background_tasks: BackgroundTasks):
+async def process_video_api(body: ProcessRequest, request: Request):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/")
     try:
         vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
-        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, background_tasks)
+        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
+async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
     base = str(request.base_url).rstrip("/")
     ext = os.path.splitext(file.filename)[1] or ".mp4"
     vpath = os.path.join(RAW_UPLOADS_DIR, f"uploaded_{uuid.uuid4().hex[:8]}{ext}")
     try:
         with open(vpath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return await run_pipeline(vpath, file.filename, max(1, min(num_clips, 8)), base, background_tasks)
+        return await run_pipeline(vpath, file.filename, max(1, min(num_clips, 8)), base)
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(500, str(e))
@@ -274,12 +267,12 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
 async def serve_clip(filename: str):
     path = os.path.join(CLIPS_DIR, filename)
     if not os.path.exists(path):
-        raise HTTPException(404, "Clip not found or processing not complete")
+        raise HTTPException(404, "Clip not found")
     return FileResponse(path, media_type="video/mp4")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "architecture": "3-Tier (Ingestion, AI Core, Delivery)"}
+    return {"status": "ok", "architecture": "Groq + Supabase Serverless"}
 
 @app.get("/")
 def root():

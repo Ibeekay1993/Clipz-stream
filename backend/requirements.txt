@@ -1,6 +1,14 @@
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
-pydantic==2.5.3
-
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
 opencv-python-headless
+
+# Utilities
+python-dotenv
+requests
+aiohttp
+
+# External APIs
+groq
+supabase
