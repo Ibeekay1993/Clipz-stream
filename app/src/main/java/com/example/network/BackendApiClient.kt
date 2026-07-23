@@ -61,8 +61,8 @@ interface BackendApiService {
 }
 
 object BackendApiClient {
-    // Primary Render endpoint that downloads audio, transcribes with Whisper, and segments highlights
-    private const val DEFAULT_URL = "https://clipz-stream.onrender.com/"
+    // Primary Modal serverless GPU endpoint that runs Whisper & FFmpeg
+    private const val DEFAULT_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run/"
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
