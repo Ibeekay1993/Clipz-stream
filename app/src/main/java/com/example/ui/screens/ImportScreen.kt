@@ -682,117 +682,185 @@ fun ImportScreen(
                     )
                 }
             }
-        }
-
-        // TRANSCRIPT READING & AI ANALYZER FULL-SCREEN VIEW (Overlay when loading)
+        }        // TRANSCRIPT READING & AI ANALYZER FULL-SCREEN VIEW (Overlay when loading or error)
         AnimatedVisibility(
-            visible = loadingState is LoadingState.Analyzing,
+            visible = loadingState is LoadingState.Analyzing || loadingState is LoadingState.Error,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
-            val state = loadingState as? LoadingState.Analyzing
-            val progress = state?.progress ?: 0
-            val currentStep = state?.currentStep ?: ""
-            val preview = state?.transcriptPreview ?: ""
-
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(DarkBg)
+                    .background(DarkBg.copy(alpha = 0.95f))
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    // Pulsing Ring Indicator around glowing Logo
-                    Box(
+                if (loadingState is LoadingState.Error) {
+                    val errState = loadingState as LoadingState.Error
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                        shape = RoundedCornerShape(24.dp),
                         modifier = Modifier
-                            .size(120.dp)
-                            .drawBehind {
-                                var alpha = (progress % 50) / 50f
-                                if (alpha < 0.2f) alpha = 0.6f
-                                drawCircle(
-                                    color = PrimaryNeon.copy(alpha = 1.0f - alpha),
-                                    radius = (60f + (progress * 1.5f)).dp.toPx(),
-                                    style = Stroke(width = 2.dp.toPx())
-                                )
-                            },
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .border(1.5.dp, RatingLow, RoundedCornerShape(24.dp))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = "AI Core",
-                            tint = PrimaryNeon,
-                            modifier = Modifier.size(56.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "BAKING DYNAMIC CLIPS",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp
-                    )
-
-                    // Progress Loader
-                    LinearProgressIndicator(
-                        progress = { progress / 100f },
-                        color = PrimaryNeon,
-                        trackColor = ContainerGrey,
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                    )
-
-                    Text(
-                        text = "$progress%",
-                        color = PrimaryNeon,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    // Analyzing step text description
-                    Text(
-                        text = currentStep,
-                        color = TextWhite,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    if (preview.isNotEmpty()) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth(0.9f)
-                                .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(12.dp))
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "TRANSCRIPTION TRACKER",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryNeon,
-                                    letterSpacing = 0.5.sp
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(RatingLow.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = "Error",
+                                    tint = RatingLow,
+                                    modifier = Modifier.size(32.dp)
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = preview,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                    color = TextWhite,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            }
+                            Text(
+                                text = "Processing Interrupted",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = errState.message,
+                                color = TextMuted,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.resetError()
+                                    selectedImportTab = 1 // Switch to Upload Video file tab!
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon, contentColor = Color.Black),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                Text("Try Uploading Video File", fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.resetError() },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                            ) {
+                                Text("Dismiss", color = Color.White)
+                            }
+                        }
+                    }
+                } else {
+                    val state = loadingState as? LoadingState.Analyzing
+                    val progress = state?.progress ?: 0
+                    val currentStep = state?.currentStep ?: ""
+                    val preview = state?.transcriptPreview ?: ""
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        // Pulsing Ring Indicator around glowing Logo
+                        Box(
+                            modifier = Modifier
+                                .size(120.dp)
+                                .drawBehind {
+                                    var alpha = (progress % 50) / 50f
+                                    if (alpha < 0.2f) alpha = 0.6f
+                                    drawCircle(
+                                        color = PrimaryNeon.copy(alpha = 1.0f - alpha),
+                                        radius = (60f + (progress * 1.5f)).dp.toPx(),
+                                        style = Stroke(width = 2.dp.toPx())
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = "AI Core",
+                                tint = PrimaryNeon,
+                                modifier = Modifier.size(56.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "BAKING DYNAMIC CLIPS",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp
+                        )
+
+                        // Progress Loader
+                        LinearProgressIndicator(
+                            progress = { progress / 100f },
+                            color = PrimaryNeon,
+                            trackColor = ContainerGrey,
+                            modifier = Modifier
+                                .fillMaxWidth(0.85f)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        )
+
+                        Text(
+                            text = "$progress%",
+                            color = PrimaryNeon,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black
+                        )
+
+                        // Analyzing step text description
+                        Text(
+                            text = currentStep,
+                            color = TextWhite,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        if (preview.isNotEmpty()) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(12.dp))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "TRANSCRIPTION TRACKER",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryNeon,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = preview,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp,
+                                        color = TextWhite,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }

@@ -1228,4 +1228,8 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             }
         }
     }
+
+    fun resetError() {
+        _loadingState.value = LoadingState.Idle
+    }
 }
