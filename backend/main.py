@@ -199,44 +199,131 @@ def transcode_and_upload(src: str, start: float, end: float, out: str) -> str:
     else:
         return f"/clips/{os.path.basename(out)}"
 
-# ── Endpoints ─────────────────────────────────────────────────────────────
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str) -> dict:
-    logger.info("Starting Groq AI Engine analysis...")
-    words = transcribe(vpath)
-    if not words: raise HTTPException(500, "No speech detected")
+def llama_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
+    """Call Groq Llama-3-70B to score clips, write viral titles & identify hooks"""
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     
-    chunks = semantic_chunks(words)
-    scored = [score(c) for c in chunks]
-    chosen = select(scored, n)
+    payload_chunks = []
+    for idx, c in enumerate(chunks):
+        payload_chunks.append({
+            "id": idx,
+            "start": round(c.start, 1),
+            "end": round(c.end, 1),
+            "duration": round(c.duration, 1),
+            "text": c.text
+        })
+        
+    prompt = f"""
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts (like Opus Clip & Wayin).
+Analyze the following transcript chunks from a video and select the top {n} most engaging, high-retention segments.
 
+TRANSCRIPT CHUNKS:
+{json.dumps(payload_chunks, indent=2)}
+
+Return ONLY a JSON object with key "clips". Each clip must have:
+- "chunk_id": int (the id of the selected chunk)
+- "title": str (catchy headline with emoji, max 6 words)
+- "viralScore": int (82 to 99)
+- "hookType": str (one of: Secret, Revelation, Story, Contrarian, Tutorial, Curiosity, Emotional, Warning)
+- "viralReason": str (1 crisp sentence explaining why this clip will perform well)
+"""
+    try:
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return data.get("clips", [])
+    except Exception as e:
+        logger.error(f"Groq Llama-3 70B analysis error: {e}")
+        return []
+
+# ── Endpoints ─────────────────────────────────────────────────────────────
+JOBS = {}
+
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None) -> dict:
+    def update_job(prog: int, step: str):
+        if job_id and job_id in JOBS:
+            JOBS[job_id]["progress"] = prog
+            JOBS[job_id]["current_step"] = step
+
+    update_job(10, "Extracting audio & Groq WhisperX transcription...")
+    logger.info("Starting Groq Whisper AI Engine analysis...")
+    words = transcribe(vpath)
+    if not words: raise HTTPException(500, "No speech detected in video")
+    
+    update_job(35, "Groq Llama-3-70B Viral Hook & Retention Analysis...")
+    chunks = semantic_chunks(words)
+    if not chunks: raise HTTPException(500, "Could not form speech segments")
+
+    # Call Llama-3 70B AI Engine
+    llama_analysis = llama_analyze_chunks(chunks, n)
+    
+    chosen_chunks = []
+    if llama_analysis:
+        for la in llama_analysis:
+            cid = la.get("chunk_id", 0)
+            if 0 <= cid < len(chunks):
+                c = chunks[cid]
+                c.score = la.get("viralScore", 85)
+                c.hook = la.get("hookType", "General")
+                c.reasons = [la.get("viralReason", "High-engagement viral hook")]
+                c.text = la.get("title", c.title()) # Override title
+                chosen_chunks.append((c, la.get("title", c.title())))
+    
+    if not chosen_chunks:
+        scored = [score(c) for c in chunks]
+        chosen = select(scored, n)
+        chosen_chunks = [(c, c.title()) for c in chosen]
+
+    update_job(60, "FFmpeg 9:16 Safe Crop & Supabase CDN Transcoding...")
     logger.info("Transcoding and uploading clips...")
     clips_out = []
     
-    # We do this synchronously so the API returns the final Supabase URLs instantly!
-    for i, chunk in enumerate(chosen):
+    total = len(chosen_chunks)
+    for i, (chunk, title_text) in enumerate(chosen_chunks):
+        prog_inc = int(60 + ((i + 1) / max(1, total)) * 35)
+        update_job(prog_inc, f"Transcoding clip {i+1} of {total}...")
+        
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
         
         try:
             clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath)
-            
-            # If it's a relative URL, prepend the base (Fallback)
             if clip_url.startswith("/clips/"):
                 clip_url = f"{base}{clip_url}"
                 
             off = chunk.words[0]["startMs"]
             captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
             
+            t_clean = title_text if title_text.startswith("🔥") or title_text.startswith("⚡") else f"🔥 {title_text}"
             clips_out.append({
-                "title": f"🔥 {chunk.title()}...", "startSec": int(chunk.start), "endSec": int(chunk.end),
-                "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement",
+                "title": t_clean, "startSec": int(chunk.start), "endSec": int(chunk.end),
+                "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
                 "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
                 "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
             })
         except Exception as e:
             logger.error(f"Failed to transcode chunk {i}: {e}")
 
-    return {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
+    result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
+    update_job(100, "Complete")
+    return result
+
+def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str):
+    try:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id))
+        JOBS[job_id]["status"] = "completed"
+        JOBS[job_id]["progress"] = 100
+        JOBS[job_id]["result"] = res
+    except Exception as e:
+        logger.error(f"Job {job_id} failed: {e}")
+        JOBS[job_id]["status"] = "failed"
+        JOBS[job_id]["error"] = str(e)
 
 @app.post("/api/process")
 async def process_video_api(body: ProcessRequest, request: Request):
@@ -248,6 +335,33 @@ async def process_video_api(body: ProcessRequest, request: Request):
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
+
+@app.post("/api/jobs/create")
+async def create_job_api(body: ProcessRequest, request: Request):
+    if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
+    base = str(request.base_url).rstrip("/")
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {
+        "job_id": job_id, "status": "processing", "progress": 2, 
+        "current_step": "Ingesting video & validating media streams...", "result": None, "error": None
+    }
+    
+    def worker():
+        try:
+            vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
+            execute_job_bg(job_id, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
+        except Exception as e:
+            JOBS[job_id]["status"] = "failed"
+            JOBS[job_id]["error"] = str(e)
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"job_id": job_id, "status": "processing"}
+
+@app.get("/api/jobs/status/{job_id}")
+async def get_job_status(job_id: str):
+    if job_id not in JOBS:
+        raise HTTPException(404, "Job not found")
+    return JOBS[job_id]
 
 @app.post("/api/upload")
 async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
@@ -271,11 +385,11 @@ async def serve_clip(filename: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "architecture": "Groq + Supabase Serverless"}
+    return {"status": "ok", "architecture": "Groq Llama-3-70B + Supabase Serverless"}
 
 @app.get("/")
 def root():
-    return {"api": "POST /api/process, POST /api/upload", "health": "GET /health"}
+    return {"api": "POST /api/process, POST /api/jobs/create, GET /api/jobs/status/{job_id}", "health": "GET /health"}
 
 if __name__ == "__main__":
     import uvicorn

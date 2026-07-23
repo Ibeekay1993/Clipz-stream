@@ -327,15 +327,33 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
                         if (finalSourceUrl != rawUrl) {
-                            // We cached a local file, so we upload it via Multipart
+                            // Local file upload via Multipart
                             val file = java.io.File(finalSourceUrl)
                             val requestFile = file.asRequestBody("video/*".toMediaType())
                             val body = okhttp3.MultipartBody.Part.createFormData("file", file.name, requestFile)
                             val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
-                            // It's a standard HTTP link
-                            BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = numClips))
+                            // Wayin / Opus Clip Asynchronous Job Polling Loop
+                            _loadingState.value = LoadingState.Analyzing(2, "Initializing AI Processing Job...", "")
+                            val jobResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
+                            val jobId = jobResp.job_id
+                            
+                            var finalResult: com.example.network.BackendProcessResponse? = null
+                            while (finalResult == null) {
+                                kotlinx.coroutines.delay(1500)
+                                val status = BackendApiClient.service.getJobStatus(jobId)
+                                val progress = status.progress.coerceIn(5, 95)
+                                val step = status.current_step ?: "Groq AI Processing..."
+                                _loadingState.value = LoadingState.Analyzing(progress, step, "")
+                                
+                                if (status.status == "completed" && status.result != null) {
+                                    finalResult = status.result
+                                } else if (status.status == "failed") {
+                                    throw Exception(status.error ?: "AI processing job failed")
+                                }
+                            }
+                            finalResult
                         }
                     }
                     _loadingState.value = LoadingState.Analyzing(50, "Finalizing Clips...", "")

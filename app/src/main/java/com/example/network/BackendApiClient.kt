@@ -46,11 +46,37 @@ data class BackendWordCaption(
     val endMs: Long
 )
 
+@JsonClass(generateAdapter = true)
+data class CreateJobResponse(
+    val job_id: String,
+    val status: String
+)
+
+@JsonClass(generateAdapter = true)
+data class JobStatusResponse(
+    val job_id: String,
+    val status: String,
+    val progress: Int = 0,
+    val current_step: String? = null,
+    val result: BackendProcessResponse? = null,
+    val error: String? = null
+)
+
 interface BackendApiService {
     @POST("api/process")
     suspend fun processVideo(
         @Body request: BackendProcessRequest
     ): BackendProcessResponse
+
+    @POST("api/jobs/create")
+    suspend fun createJob(
+        @Body request: BackendProcessRequest
+    ): CreateJobResponse
+
+    @retrofit2.http.GET("api/jobs/status/{job_id}")
+    suspend fun getJobStatus(
+        @retrofit2.http.Path("job_id") jobId: String
+    ): JobStatusResponse
 
     @Multipart
     @POST("api/upload")
