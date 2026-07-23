@@ -149,17 +149,17 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel.sort(key=lambda x: x.start)
     return sel
 
-def calculate_smart_crop_x(video_path: str, target_aspect: float = 9/16) -> int:
+def calculate_smart_crop(video_path: str, target_aspect: float = 9/16) -> dict:
     """Computer Vision: Analyzes frames to track facial/subject center for dynamic cropping."""
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened(): return -1
+    if not cap.isOpened(): return {"action": "scale", "w": 1080, "h": 1920}
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     crop_w = int(height * target_aspect)
     
     if width <= crop_w:
         cap.release()
-        return 0
+        return {"action": "pad", "w": width, "h": height, "target_w": crop_w}
 
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
     centers = []; frames_checked = 0
@@ -181,15 +181,28 @@ def calculate_smart_crop_x(video_path: str, target_aspect: float = 9/16) -> int:
     else:
         crop_x = (width - crop_w) // 2
         
-    return max(0, min(crop_x, width - crop_w))
+    crop_x = max(0, min(crop_x, width - crop_w))
+    # Ensure even numbers
+    crop_x = crop_x - (crop_x % 2)
+    crop_w = crop_w - (crop_w % 2)
+    height = height - (height % 2)
+    
+    return {"action": "crop", "w": crop_w, "h": height, "x": crop_x, "y": 0}
 
 # ============================================================================
 # TIER 3: DELIVERY LAYER (Transcoding & CDN)
 # ============================================================================
-def transcode_and_deliver(src: str, start: float, end: float, out: str, crop_x: int):
+def transcode_and_deliver(src: str, start: float, end: float, out: str, crop_data: dict):
     """Background delivery task using FFmpeg for transcoding"""
     dur = end - start
-    vf = f"crop=ih*9/16:ih:{crop_x}:0,scale=1080:1920,fps=30" if crop_x >= 0 else "crop=ih*9/16:ih,scale=1080:1920,fps=30"
+    
+    if crop_data["action"] == "crop":
+        cw, ch, cx, cy = crop_data["w"], crop_data["h"], crop_data["x"], crop_data["y"]
+        vf = f"crop={cw}:{ch}:{cx}:{cy},scale=1080:1920,fps=30"
+    elif crop_data["action"] == "pad":
+        vf = f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30"
+    else:
+        vf = f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30"
     
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -210,7 +223,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, backgrou
     chosen = select(scored, n)
 
     logger.info("Computing Smart Crop via OpenCV...")
-    crop_x = calculate_smart_crop_x(vpath)
+    crop_data = calculate_smart_crop(vpath)
 
     clips_out = []
     for i, chunk in enumerate(chosen):
@@ -219,7 +232,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, backgrou
         clip_url = f"{base}/clips/{fname}"
         
         # Enqueue transcoding to Delivery Layer asynchronously
-        background_tasks.add_task(transcode_and_deliver, vpath, chunk.start, chunk.end, fpath, crop_x)
+        background_tasks.add_task(transcode_and_deliver, vpath, chunk.start, chunk.end, fpath, crop_data)
 
         off = chunk.words[0]["startMs"]
         captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
