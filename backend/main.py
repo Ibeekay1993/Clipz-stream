@@ -68,17 +68,32 @@ class ProcessRequest(BaseModel):
 
 def download_video_ingest(url: str, out_dir: str) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
+    
+    # Industry Best Practice: YouTube Session Cookie Authentication
+    cookie_path = os.path.join(out_dir, "yt_cookies.txt")
+    cookies_content = os.getenv("YOUTUBE_COOKIES", "")
+    if cookies_content and not os.path.exists(cookie_path):
+        try:
+            with open(cookie_path, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+        except Exception as e:
+            logger.warning(f"Failed to write cookies file: {e}")
+            
+    has_cookies = os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 10
+    
     clients_attempts = [
-        ['ios', 'mweb'],
-        ['tv_embedded', 'android'],
+        ['mweb', 'ios', 'android'],
+        ['tv_embedded', 'web_creator'],
         ['web', 'mweb']
     ]
+    
     for client_list in clients_attempts:
         ydl_opts = {
             'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
+            'geo_bypass': True,
             'merge_output_format': 'mp4',
             'extractor_args': {
                 'youtube': {
@@ -86,8 +101,11 @@ def download_video_ingest(url: str, out_dir: str) -> str:
                 }
             }
         }
+        if has_cookies:
+            ydl_opts['cookiefile'] = cookie_path
+            
         try:
-            logger.info(f"Downloading YouTube video via yt_dlp with clients {client_list}: {url}")
+            logger.info(f"Downloading video via yt_dlp ({client_list}, cookies={has_cookies}): {url}")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
@@ -102,7 +120,7 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
                 return p
 
-    raise Exception(f"Ingestion failed for {url}. YouTube datacenter bot restriction. Please use the Upload Video tab.")
+    raise Exception(f"Ingestion failed for {url}. Datacenter bot restriction. Please use the Upload Video tab.")
 
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
@@ -470,6 +488,22 @@ def health():
 @app.get("/")
 def root():
     return {"api": "POST /api/process, POST /api/jobs/create, GET /api/jobs/status/{job_id}", "health": "GET /health"}
+
+# Modal Cloud Deployment Handler
+try:
+    import modal
+    image = (
+        modal.Image.debian_slim(python_version="3.11")
+        .apt_install("ffmpeg")
+        .pip_install("fastapi", "yt-dlp", "groq", "requests", "supabase", "python-dotenv", "python-multipart")
+    )
+    modal_app = modal.App("clipz-stream-fastapi-app")
+    @modal_app.function(image=image, timeout=600, cpu=2.0)
+    @modal.asgi_app()
+    def fastapi_app():
+        return app
+except Exception:
+    pass
 
 if __name__ == "__main__":
     import uvicorn
