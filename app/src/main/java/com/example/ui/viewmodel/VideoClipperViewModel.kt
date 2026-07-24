@@ -324,10 +324,23 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
 
             // Check if call should go to our custom FastAPI Render backend first
             if (rawUrl.startsWith("http") || finalSourceUrl != rawUrl) {
-                _loadingState.value = LoadingState.Analyzing(5, "Connecting to Cloud Processing...", "")
+                _loadingState.value = LoadingState.Analyzing(5, "Connecting to AI Engine...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
-                        if (finalSourceUrl != rawUrl) {
+                        val ytId = extractYoutubeId(rawUrl)
+                        var onDeviceFile: File? = null
+                        if (ytId != null && finalSourceUrl == rawUrl) {
+                            _loadingState.value = LoadingState.Analyzing(5, "Resolving YouTube stream on device...", "")
+                            onDeviceFile = downloadYoutubeMediaOnDevice(getApplication(), rawUrl)
+                        }
+
+                        if (onDeviceFile != null && onDeviceFile.exists()) {
+                            _loadingState.value = LoadingState.Analyzing(15, "Uploading resolved video to AI Engine...", "")
+                            val requestFile = onDeviceFile.asRequestBody("video/*".toMediaType())
+                            val body = okhttp3.MultipartBody.Part.createFormData("file", onDeviceFile.name, requestFile)
+                            val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
+                            BackendApiClient.service.uploadVideo(body, numClipsPart)
+                        } else if (finalSourceUrl != rawUrl) {
                             // Local file upload via Multipart
                             val file = java.io.File(finalSourceUrl)
                             val requestFile = file.asRequestBody("video/*".toMediaType())
@@ -336,7 +349,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
                             // Wayin / Opus Clip Asynchronous Job Polling Loop
-                            _loadingState.value = LoadingState.Analyzing(2, "Initializing AI Processing Job...", "")
+                            _loadingState.value = LoadingState.Analyzing(2, "Initializing Cloud AI Processing...", "")
                             val jobResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
                             val jobId = jobResp.job_id
                             
