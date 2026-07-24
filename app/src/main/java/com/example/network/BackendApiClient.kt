@@ -107,7 +107,7 @@ object BackendApiClient {
             } catch (e: Exception) {
                 null
             }
-            if (!configUrl.isNullOrBlank() && configUrl != "https://YOUR-RENDER-URL.onrender.com/") {
+            if (!configUrl.isNullOrBlank() && configUrl.contains("modal.run")) {
                 if (configUrl.endsWith("/")) configUrl else "$configUrl/"
             } else {
                 DEFAULT_URL
