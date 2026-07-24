@@ -66,61 +66,113 @@ class ProcessRequest(BaseModel):
     url: str
     num_clips: int = 3
 
+class IngestionBlockedError(Exception):
+    """Raised when YouTube refuses the download (bot check / login wall / geo-block)."""
+    pass
+
+
+def _cookiefile_path():
+    """
+    Resolve a cookies.txt for yt-dlp so requests look like a logged-in browser
+    instead of a bare datacenter IP (this is the #1 fix for 'Sign in to confirm
+    you're not a bot').
+
+    Priority:
+      1. YTDLP_COOKIES_FILE - path to a Netscape-format cookies.txt already on disk
+      2. YTDLP_COOKIES_CONTENT - the cookies.txt contents pasted into an env var
+         (handy on Render/Modal where you can't mount a file easily)
+    """
+    path_env = os.getenv("YTDLP_COOKIES_FILE")
+    if path_env and os.path.exists(path_env):
+        return path_env
+
+    content_env = os.getenv("YTDLP_COOKIES_CONTENT")
+    if content_env:
+        tmp_path = os.path.join("/tmp", "yt_cookies.txt")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content_env)
+            return tmp_path
+        except Exception as e:
+            logger.warning(f"Could not materialize YTDLP_COOKIES_CONTENT: {e}")
+    return None
+
+
 def download_video_ingest(url: str, out_dir: str) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
-    
-    # Industry Best Practice: YouTube Session Cookie Authentication
-    cookie_path = os.path.join(out_dir, "yt_cookies.txt")
-    cookies_content = os.getenv("YOUTUBE_COOKIES", "")
-    if cookies_content and not os.path.exists(cookie_path):
-        try:
-            with open(cookie_path, "w", encoding="utf-8") as f:
-                f.write(cookies_content)
-        except Exception as e:
-            logger.warning(f"Failed to write cookies file: {e}")
-            
-    has_cookies = os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 10
-    
+    cookiefile = _cookiefile_path()
+    proxy = os.getenv("YTDLP_PROXY")  # e.g. residential/rotating proxy URL, optional but strongly recommended
+    po_token = os.getenv("YTDLP_PO_TOKEN")  # optional, see README for how to mint one
+
+    # Client fallback order tuned for current YouTube bot-checks:
+    # - web_embedded/tv rarely trigger "confirm you're not a bot" since they don't require a full player
+    # - ios/android need a PO token or they get throttled/blocked on datacenter IPs
     clients_attempts = [
-        ['mweb', 'ios', 'android'],
-        ['tv_embedded', 'web_creator'],
-        ['web', 'mweb']
+        ['tv_embedded'],
+        ['web_embedded'],
+        ['ios'],
+        ['android', 'web'],
     ]
-    
-    for client_list in clients_attempts:
+
+    last_error = None
+    bot_check_hit = False
+
+    for attempt, client_list in enumerate(clients_attempts):
         ydl_opts = {
             'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
-            'geo_bypass': True,
             'merge_output_format': 'mp4',
+            'retries': 3,
+            'fragment_retries': 3,
+            'socket_timeout': 20,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
             'extractor_args': {
                 'youtube': {
-                    'player_client': client_list
+                    'player_client': client_list,
+                    **({'po_token': [po_token]} if po_token else {}),
                 }
-            }
+            },
         }
-        if has_cookies:
-            ydl_opts['cookiefile'] = cookie_path
-            
+        if cookiefile:
+            ydl_opts['cookiefile'] = cookiefile
+        if proxy:
+            ydl_opts['proxy'] = proxy
+
         try:
-            logger.info(f"Downloading video via yt_dlp ({client_list}, cookies={has_cookies}): {url}")
+            logger.info(f"Downloading YouTube video via yt_dlp (attempt {attempt+1}/{len(clients_attempts)}, "
+                        f"clients={client_list}, cookies={'yes' if cookiefile else 'no'}, proxy={'yes' if proxy else 'no'}): {url}")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
                 return out_file
         except Exception as e:
-            logger.warning(f"Client list {client_list} failed: {e}")
-            
-    # Check if file was saved under slightly different extension
+            msg = str(e)
+            last_error = msg
+            if "Sign in to confirm" in msg or "not a bot" in msg or "cookies" in msg.lower():
+                bot_check_hit = True
+            logger.warning(f"Client list {client_list} failed: {msg}")
+            time.sleep(1.5 * (attempt + 1))  # brief backoff before trying the next client persona
+
+    # Check if file was saved under a slightly different name/extension by a partially-successful attempt
     for f in os.listdir(out_dir):
         if f.startswith("video_"):
             p = os.path.join(out_dir, f)
             if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
                 return p
 
-    raise Exception(f"Ingestion failed for {url}. Datacenter bot restriction. Please use the Upload Video tab.")
+    if bot_check_hit:
+        raise IngestionBlockedError(
+            "YouTube blocked this download with a bot-check (common on cloud/datacenter IPs). "
+            "Fix: set YTDLP_COOKIES_CONTENT (export cookies.txt from a logged-in browser session) "
+            "and/or YTDLP_PROXY to a residential proxy. See README 'YouTube bot-check' section. "
+            "In the meantime, use the Upload Video tab."
+        )
+    raise Exception(f"Ingestion failed for {url}: {last_error}. Please use the Upload Video tab.")
 
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
@@ -489,6 +541,10 @@ def health():
 def root():
     return {"api": "POST /api/process, POST /api/jobs/create, GET /api/jobs/status/{job_id}", "health": "GET /health"}
 
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 # Modal Cloud Deployment Handler
 try:
     import modal
@@ -504,7 +560,3 @@ try:
         return app
 except Exception:
     pass
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))

@@ -480,9 +480,17 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             }
                             dynamicTimeline = trackTimeline
                         } else {
-                            // Default transcript representation if video is un-subtitled
-                            finalTranscript = "Welcome to this episode where we talk about $finalTitle. This is a highly requested topic. In this short visual hook, we discuss the core framework, analyze the real-world strategy, explore key practical tips and deliver direct takeaways you can implement immediately. Let's dive deep into this."
-                            finalDuration = 120
+                            // No real captions/transcript available for this video, and the cloud
+                            // backend (which would transcribe the actual audio) already failed above.
+                            // We deliberately do NOT fabricate a placeholder transcript here anymore:
+                            // doing so used to produce clips with made-up captions and timestamps that
+                            // had nothing to do with the real video content. Fail loudly instead.
+                            _loadingState.value = LoadingState.Error(
+                                "Couldn't get a real transcript for this video (no captions available, " +
+                                "and the cloud AI backend is unreachable). Please try again in a moment, " +
+                                "or use \"Upload Video\" to process the file directly on this device."
+                            )
+                            return@launch
                         }
                     }
                 }
