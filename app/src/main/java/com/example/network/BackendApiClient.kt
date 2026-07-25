@@ -95,9 +95,9 @@ object BackendApiClient {
         .build()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(180, TimeUnit.SECONDS) // FastAPI Whisper transcription can take a while on CPU
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(180, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
         .build()
 
     fun getBaseUrl(): String {
