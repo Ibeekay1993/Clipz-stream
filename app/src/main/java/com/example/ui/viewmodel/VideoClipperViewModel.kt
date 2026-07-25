@@ -322,25 +322,12 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var isBackendSuccess = false
             var backendClipsList: List<Clip>? = null
 
-            // Check if call should go to our custom FastAPI Render backend first
+            // Connect directly to our Modal serverless GPU backend
             if (rawUrl.startsWith("http") || finalSourceUrl != rawUrl) {
-                _loadingState.value = LoadingState.Analyzing(5, "Connecting to AI Engine...", "")
+                _loadingState.value = LoadingState.Analyzing(15, "Initializing Cloud AI Processing...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
-                        val ytId = extractYoutubeId(rawUrl)
-                        var onDeviceFile: File? = null
-                        if (ytId != null && finalSourceUrl == rawUrl) {
-                            _loadingState.value = LoadingState.Analyzing(5, "Resolving YouTube stream on device...", "")
-                            onDeviceFile = downloadYoutubeMediaOnDevice(getApplication(), rawUrl)
-                        }
-
-                        if (onDeviceFile != null && onDeviceFile.exists()) {
-                            _loadingState.value = LoadingState.Analyzing(15, "Uploading resolved video to AI Engine...", "")
-                            val requestFile = onDeviceFile.asRequestBody("video/*".toMediaType())
-                            val body = okhttp3.MultipartBody.Part.createFormData("file", onDeviceFile.name, requestFile)
-                            val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
-                            BackendApiClient.service.uploadVideo(body, numClipsPart)
-                        } else if (finalSourceUrl != rawUrl) {
+                        if (finalSourceUrl != rawUrl && !finalSourceUrl.startsWith("http")) {
                             // Local file upload via Multipart
                             val file = java.io.File(finalSourceUrl)
                             val requestFile = file.asRequestBody("video/*".toMediaType())
@@ -348,42 +335,53 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
-                            // Wayin / Opus Clip Asynchronous Job Polling Loop
-                            _loadingState.value = LoadingState.Analyzing(2, "Initializing Cloud AI Processing...", "")
+                            // Wayin / Opus Clip Fast Asynchronous Job Polling Loop
                             val jobResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
                             val jobId = jobResp.job_id
                             
                             var finalResult: com.example.network.BackendProcessResponse? = null
+                            var simulatedProgress = 20
                             while (finalResult == null) {
-                                kotlinx.coroutines.delay(1500)
-                                val status = BackendApiClient.service.getJobStatus(jobId)
-                                val progress = status.progress.coerceIn(5, 95)
-                                val step = status.current_step ?: "Groq AI Processing..."
-                                _loadingState.value = LoadingState.Analyzing(progress, step, "")
-                                
-                                if (status.status == "completed" && status.result != null) {
-                                    finalResult = status.result
-                                } else if (status.status == "failed") {
-                                    throw Exception(status.error ?: "AI processing job failed")
+                                kotlinx.coroutines.delay(1000)
+                                try {
+                                    val status = BackendApiClient.service.getJobStatus(jobId)
+                                    simulatedProgress = (simulatedProgress + 15).coerceAtMost(92)
+                                    val progress = if (status.progress > 0) status.progress.coerceIn(15, 95) else simulatedProgress
+                                    val step = status.current_step ?: "Groq AI Virality Analysis & Captioning..."
+                                    _loadingState.value = LoadingState.Analyzing(progress, step, "")
+                                    
+                                    if (status.status == "completed" && status.result != null) {
+                                        finalResult = status.result
+                                    } else if (status.status == "failed") {
+                                        throw Exception(status.error ?: "AI processing job failed")
+                                    }
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                    simulatedProgress = (simulatedProgress + 10).coerceAtMost(90)
+                                    _loadingState.value = LoadingState.Analyzing(simulatedProgress, "AI Engine Analyzing Speech & Highlights...", "")
+                                    if (simulatedProgress >= 90) {
+                                        break
+                                    }
                                 }
                             }
                             finalResult
                         }
                     }
-                    _loadingState.value = LoadingState.Analyzing(50, "Finalizing Clips...", "")
+                    _loadingState.value = LoadingState.Analyzing(90, "Finalizing Clips...", "")
                     
-                    finalDuration = backendResponse.duration.toLong()
-                    finalTitle = if (title.isNotEmpty()) title else "Render Ingest: " + finalSourceUrl.substringAfterLast("/").substringBefore("?").take(15)
-                    finalDesc = "Automated Render process for " + (if (finalSourceUrl != rawUrl) "uploaded file" else rawUrl)
-                    
-                    val allWordCaptions = backendResponse.clips.flatMap { it.captions ?: emptyList() }
-                    finalTranscript = if (allWordCaptions.isNotEmpty()) {
-                        allWordCaptions.joinToString(" ") { it.word }
-                    } else {
-                        "Deep speech transcription completed successfully."
-                    }
-                    
-                    backendClipsList = backendResponse.clips.map { c ->
+                    if (backendResponse != null) {
+                        finalDuration = backendResponse.duration.toLong()
+                        finalTitle = if (title.isNotEmpty()) title else "Modal Ingest: " + finalSourceUrl.substringAfterLast("/").substringBefore("?").take(15)
+                        finalDesc = "Automated Modal process for " + (if (finalSourceUrl != rawUrl) "uploaded file" else rawUrl)
+                        
+                        val allWordCaptions = backendResponse.clips.flatMap { it.captions ?: emptyList() }
+                        finalTranscript = if (allWordCaptions.isNotEmpty()) {
+                            allWordCaptions.joinToString(" ") { it.word }
+                        } else {
+                            "Deep speech transcription completed successfully."
+                        }
+                        
+                        backendClipsList = backendResponse.clips.map { c ->
                         val clipUrlRaw = c.clipUrl
                         val resolvedUrl = if (clipUrlRaw != null) {
                             if (clipUrlRaw.startsWith("/")) {
@@ -409,6 +407,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                         )
                     }
                     isBackendSuccess = true
+                }
                 } catch (e: Exception) {
                     Log.e("BackendApiClient", "Modal processing error: ${e.message}", e)
                     // On-Device Fallback for YouTube URLs when cloud datacenter is blocked
@@ -1300,7 +1299,7 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 
             var mediaStreamUrl: String? = null
             try {
-                val pageUrl = "https://m.youtube.com/watch?v=$videoId"
+                val pageUrl = "https://www.youtube.com/watch?v=$videoId"
                 val req = Request.Builder()
                     .url(pageUrl)
                     .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
@@ -1314,11 +1313,17 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                         val jsonStr = match.groupValues[1]
                         val matchUrl = Regex(""""url":\s*"([^"]+)"""").findAll(jsonStr)
                         for (m in matchUrl) {
-                            val u = m.groupValues[1].replace("\\u0026", "&")
-                            if (u.contains("mp4") || u.contains("videoplayback")) {
+                            val u = m.groupValues[1].replace("\\u0026", "&").replace("\\/", "/")
+                            if (u.contains("googlevideo.com") || u.contains("videoplayback")) {
                                 mediaStreamUrl = u
                                 break
                             }
+                        }
+                    }
+                    if (mediaStreamUrl == null) {
+                        val matchGv = Regex("""https://[a-zA-Z0-9.-]+\.googlevideo\.com/videoplayback\?[^"'\s\\]+""").find(html)
+                        if (matchGv != null) {
+                            mediaStreamUrl = matchGv.value.replace("\\u0026", "&").replace("\\/", "/")
                         }
                     }
                 } else {

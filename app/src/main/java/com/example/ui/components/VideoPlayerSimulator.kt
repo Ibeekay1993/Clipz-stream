@@ -46,6 +46,8 @@ import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 
 private class PositionRef(var value: Long)
 private class PlaybackStateRef(var isPlaying: Boolean? = null)
@@ -208,36 +210,48 @@ fun VideoPlayerSimulator(
         val isRealVideoEffective = isRealVideo && !forceHostFeed
         val isYoutubeEffective = isYoutube && !forceHostFeed
 
-        // Dynamic Speaker visualizer background reflecting video topic
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawBehind {
-                    // Luxurious slate cosmic radial gradient
-                    val centerColor = if (thumbnailType == "ai") Color(0xFF1B0B30) else Color(0xFF03221C)
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(centerColor, Color(0xFF07070B)),
-                            center = Offset(size.width / 2f, size.height / 2f),
-                            radius = size.width
-                        )
-                    )
-
-                    // Overlay high-tech vector nodes in background grid
-                    val gridSpacing = 40.dp.toPx()
-                    val rows = (size.height / gridSpacing).toInt()
-                    val cols = (size.width / gridSpacing).toInt()
-                    for (r in 0..rows) {
-                        for (c in 0..cols) {
-                            drawCircle(
-                                color = Color(0x0C00FF87),
-                                radius = 2f,
-                                center = Offset(c * gridSpacing, r * gridSpacing)
-                            )
-                        }
-                    }
-                }
+            modifier = Modifier.fillMaxSize()
         ) {
+            if (youtubeId != null) {
+                AsyncImage(
+                    model = "https://img.youtube.com/vi/$youtubeId/hqdefault.jpg",
+                    contentDescription = "YouTube Video Thumbnail",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            // Luxurious slate cosmic radial gradient
+                            val centerColor = if (thumbnailType == "ai") Color(0xFF1B0B30) else Color(0xFF03221C)
+                            drawRect(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(centerColor, Color(0xFF07070B)),
+                                    center = Offset(size.width / 2f, size.height / 2f),
+                                    radius = size.width
+                                )
+                            )
+
+                            // Overlay high-tech vector nodes in background grid
+                            val gridSpacing = 40.dp.toPx()
+                            val rows = (size.height / gridSpacing).toInt()
+                            val cols = (size.width / gridSpacing).toInt()
+                            for (r in 0..rows) {
+                                for (c in 0..cols) {
+                                    drawCircle(
+                                        color = Color(0x0C00FF87),
+                                        radius = 2f,
+                                        center = Offset(c * gridSpacing, r * gridSpacing)
+                                    )
+                                }
+                            }
+                        }
+                )
+            }
+
             // Video aspect bounding content viewport
             Box(
                 modifier = Modifier
@@ -357,12 +371,27 @@ fun VideoPlayerSimulator(
                                         settings.javaScriptEnabled = true
                                         settings.mediaPlaybackRequiresUserGesture = false
                                         settings.domStorageEnabled = true
+                                        settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                                         webViewClient = WebViewClient()
                                         webChromeClient = WebChromeClient()
                                         
                                         val startSecState = (currentPositionMs / 1000).toInt()
-                                        val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=1&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState"
-                                        loadUrl(embedUrl)
+                                        val html = """
+                                        <!DOCTYPE html>
+                                        <html>
+                                        <head>
+                                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                          <style>
+                                            html, body { margin: 0; padding: 0; background-color: #000; overflow: hidden; width: 100%; height: 100%; }
+                                            iframe { width: 100%; height: 100%; border: none; }
+                                          </style>
+                                        </head>
+                                        <body>
+                                          <iframe id="player" src="https://www.youtube-nocookie.com/embed/$youtubeId?autoplay=1&controls=1&enablejsapi=1&playsinline=1&start=$startSecState" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                        </body>
+                                        </html>
+                                        """.trimIndent()
+                                        loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
                                     }
                                 } catch (t: Throwable) {
                                     android.util.Log.e("VideoPlayerSimulator", "WebView creation failed", t)
@@ -381,8 +410,22 @@ fun VideoPlayerSimulator(
                                     val autopl = if (isPlaying) 1 else 0
                                     if (tag != videoUri) {
                                         val startSecState = (currentPositionMs / 1000).toInt()
-                                        val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
-                                        view.loadUrl(embedUrl)
+                                        val html = """
+                                        <!DOCTYPE html>
+                                        <html>
+                                        <head>
+                                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                          <style>
+                                            html, body { margin: 0; padding: 0; background-color: #000; overflow: hidden; width: 100%; height: 100%; }
+                                            iframe { width: 100%; height: 100%; border: none; }
+                                          </style>
+                                        </head>
+                                        <body>
+                                          <iframe id="player" src="https://www.youtube-nocookie.com/embed/$youtubeId?autoplay=$autopl&controls=1&enablejsapi=1&playsinline=1&start=$startSecState" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                        </body>
+                                        </html>
+                                        """.trimIndent()
+                                        view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
                                         view.tag = videoUri
                                         lastPositionRef.value = currentPositionMs
                                         playStateRef.isPlaying = isPlaying
@@ -391,8 +434,22 @@ fun VideoPlayerSimulator(
                                         val now = System.currentTimeMillis()
                                         if (now - lastSeekTimeRef.value > 1000L) {
                                             val startSecState = (currentPositionMs / 1000).toInt()
-                                            val embedUrl = "https://www.youtube.com/embed/$youtubeId?autoplay=$autopl&mute=0&controls=1&loop=1&playlist=$youtubeId&start=$startSecState&enablejsapi=1"
-                                            view.loadUrl(embedUrl)
+                                            val html = """
+                                            <!DOCTYPE html>
+                                            <html>
+                                            <head>
+                                              <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                              <style>
+                                                html, body { margin: 0; padding: 0; background-color: #000; overflow: hidden; width: 100%; height: 100%; }
+                                                iframe { width: 100%; height: 100%; border: none; }
+                                              </style>
+                                            </head>
+                                            <body>
+                                              <iframe id="player" src="https://www.youtube-nocookie.com/embed/$youtubeId?autoplay=$autopl&controls=1&enablejsapi=1&playsinline=1&start=$startSecState" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                            </body>
+                                            </html>
+                                            """.trimIndent()
+                                            view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
                                             lastPositionRef.value = currentPositionMs
                                             playStateRef.isPlaying = isPlaying
                                             lastSeekTimeRef.value = now
@@ -410,7 +467,6 @@ fun VideoPlayerSimulator(
                                             }
                                         }
                                     }
-                                    // ALWAYS update lastPositionRef.value to match currentPositionMs so we never drift and loop-reload
                                     lastPositionRef.value = currentPositionMs
                                 }
                             },
@@ -818,7 +874,7 @@ fun RenderDynamicCaptions(
     }
 }
 
-private fun extractYoutubeId(url: String): String? {
+fun extractYoutubeId(url: String): String? {
     return try {
         val trimmed = url.trim()
         if (trimmed.contains("youtu.be/")) {

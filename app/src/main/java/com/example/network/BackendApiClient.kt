@@ -88,7 +88,7 @@ interface BackendApiService {
 
 object BackendApiClient {
     // Primary Modal serverless GPU endpoint that runs Whisper & FFmpeg
-    private const val DEFAULT_URL = "https://ibeekay1993--clipz-stream-fastapi-app-fastapi-app.modal.run/"
+    private const val DEFAULT_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run/"
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())

@@ -30,7 +30,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.BuildConfig
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import androidx.compose.ui.viewinterop.AndroidView
+import com.example.ui.components.VideoPlayerSimulator
+import com.example.ui.components.extractYoutubeId
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.LoadingState
 import com.example.ui.viewmodel.VideoClipperViewModel
@@ -91,6 +96,52 @@ fun ImportScreen(
     var localVideoDuration by remember { mutableStateOf(0L) }
     
     var numClips by remember { mutableStateOf(3) }
+    
+    var isPreviewPlaying by remember { mutableStateOf(false) }
+    var previewPositionMs by remember { mutableStateOf(0L) }
+    
+    var selectedTool by remember { mutableStateOf("AI Clipping") }
+    var selectedLanguage by remember { mutableStateOf("Auto / No translation") }
+    var selectedClipLength by remember { mutableStateOf("Auto (<90s)") }
+    var languageDropdownExpanded by remember { mutableStateOf(false) }
+    var lengthDropdownExpanded by remember { mutableStateOf(false) }
+    var fetchedYtChannel by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(inputUrl) {
+        if (inputUrl.isNotBlank()) {
+            val ytId = extractYoutubeId(inputUrl)
+            if (ytId != null) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$ytId&format=json"
+                        val conn = java.net.URL(oembedUrl).openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 4000
+                        conn.readTimeout = 4000
+                        if (conn.responseCode == 200) {
+                            val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                            val jsonObj = org.json.JSONObject(jsonStr)
+                            val title = jsonObj.optString("title")
+                            val author = jsonObj.optString("author_name")
+                            withContext(Dispatchers.Main) {
+                                if (!title.isNullOrBlank()) {
+                                    inputTitle = title
+                                }
+                                if (!author.isNullOrBlank()) {
+                                    fetchedYtChannel = "YouTube • $author"
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Safe fallback
+                    }
+                }
+            } else {
+                fetchedYtChannel = null
+            }
+        } else {
+            fetchedYtChannel = null
+        }
+    }
     
     val scope = rememberCoroutineScope()
     val videoPickerLauncher = rememberLauncherForActivityResult(
@@ -246,18 +297,66 @@ fun ImportScreen(
 
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                                     Text(
-                                        text = "Paste a video link to begin",
+                                        text = "Choose what to do with this video",
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = TextWhite,
                                         textAlign = TextAlign.Center
                                     )
                                     Text(
-                                        text = "YouTube, Twitch, or online media URLs",
+                                        text = "Paste a video link or upload to generate clips",
                                         fontSize = 13.sp,
                                         color = TextMuted,
                                         textAlign = TextAlign.Center
                                     )
+                                }
+
+                                // Tool Selection Chips (Wayin-style action selector)
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                ) {
+                                    items(listOf(
+                                        "AI Clipping" to Icons.Default.VideoCall,
+                                        "Find Moments" to Icons.Default.Search,
+                                        "Game Clipping" to Icons.Default.SportsEsports,
+                                        "Video Editor" to Icons.Default.Edit,
+                                        "Video Summary" to Icons.Default.Description,
+                                        "Video Transcripts" to Icons.Default.Subtitles,
+                                        "AI Subtitles" to Icons.Default.ClosedCaption,
+                                        "Speech Enhancer" to Icons.Default.GraphicEq,
+                                        "AI Reframe" to Icons.Default.Crop,
+                                        "B-roll" to Icons.Default.Movie,
+                                        "AI Hook" to Icons.Default.AutoAwesome
+                                    )) { (toolName, toolIcon) ->
+                                        val isSelected = selectedTool == toolName
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedTool = toolName },
+                                            label = { Text(toolName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = toolIcon,
+                                                    contentDescription = toolName,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isSelected) Color.Black else PrimaryNeon
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = PrimaryNeon,
+                                                selectedLabelColor = Color.Black,
+                                                containerColor = ContainerGrey,
+                                                labelColor = Color.White
+                                            ),
+                                            shape = RoundedCornerShape(20.dp),
+                                            border = FilterChipDefaults.filterChipBorder(
+                                                enabled = true,
+                                                selected = isSelected,
+                                                borderColor = Color(0x3B8D8FA6),
+                                                selectedBorderColor = PrimaryNeon
+                                            )
+                                        )
+                                    }
                                 }
 
                                 // URL Field
@@ -324,6 +423,153 @@ fun ImportScreen(
                                             inputDesc = "AI expert conversation on future software engineering & deep models."
                                         }
                                     )
+                                }
+
+                                // Interactive Video Preview Box (Show source video before clipping)
+                                AnimatedVisibility(visible = inputUrl.isNotBlank()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(ContainerGrey)
+                                            .border(1.dp, PrimaryNeon.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircleOutline,
+                                                    contentDescription = "Source Video Preview",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(
+                                                    text = "Source Video Preview",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { isPreviewPlaying = !isPreviewPlaying },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isPreviewPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                                    contentDescription = if (isPreviewPlaying) "Pause Preview" else "Play Preview",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                        ) {
+                                            val ytPreviewId = remember(inputUrl) { extractYoutubeId(inputUrl) }
+                                            if (ytPreviewId != null) {
+                                                AndroidView(
+                                                    factory = { ctx ->
+                                                        WebView(ctx).apply {
+                                                            setBackgroundColor(android.graphics.Color.BLACK)
+                                                            settings.javaScriptEnabled = true
+                                                            settings.domStorageEnabled = true
+                                                            settings.mediaPlaybackRequiresUserGesture = false
+                                                            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                                            webViewClient = WebViewClient()
+                                                            webChromeClient = WebChromeClient()
+                                                            loadUrl("https://www.youtube.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1")
+                                                        }
+                                                    },
+                                                    update = { view ->
+                                                        val tag = view.tag as? String
+                                                        if (tag != inputUrl) {
+                                                            view.loadUrl("https://www.youtube.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1")
+                                                            view.tag = inputUrl
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                VideoPlayerSimulator(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    title = if (inputTitle.isNotEmpty()) inputTitle else "Source Video Preview",
+                                                    thumbnailType = "ai",
+                                                    isPlaying = isPreviewPlaying,
+                                                    currentPositionMs = previewPositionMs,
+                                                    aspectRatio = "16:9",
+                                                    captionStyle = "Kinetic Yellow",
+                                                    panOffset = 0.5f,
+                                                    captions = emptyList(),
+                                                    videoUri = inputUrl,
+                                                    onPanOffsetChanged = {}
+                                                )
+                                            }
+
+                                            // Top Right Duration Badge
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color.Black.copy(alpha = 0.8f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "01:32:29",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        // Video Title & Channel Source info (Wayin-style)
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 4.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = if (inputTitle.isNotBlank()) inputTitle else "Video Source Loaded",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(SurfaceSlate)
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = fetchedYtChannel ?: "YouTube Source",
+                                                        color = PrimaryNeon,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Toggle manual metadata
@@ -552,6 +798,72 @@ fun ImportScreen(
                                         }
                                     }
 
+                                    // Local Video File Interactive Preview Player
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(ContainerGrey)
+                                            .border(1.dp, PrimaryNeon.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircleOutline,
+                                                    contentDescription = "File Video Preview",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(
+                                                    text = "Uploaded Video Preview",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { isPreviewPlaying = !isPreviewPlaying },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isPreviewPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                                    contentDescription = if (isPreviewPlaying) "Pause Preview" else "Play Preview",
+                                                    tint = PrimaryNeon,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                        ) {
+                                            VideoPlayerSimulator(
+                                                modifier = Modifier.fillMaxSize(),
+                                                title = localVideoName,
+                                                thumbnailType = "ai",
+                                                isPlaying = isPreviewPlaying,
+                                                currentPositionMs = previewPositionMs,
+                                                aspectRatio = "16:9",
+                                                captionStyle = "Kinetic Yellow",
+                                                panOffset = 0.5f,
+                                                captions = emptyList(),
+                                                videoUri = localVideoUri.toString(),
+                                                onPanOffsetChanged = {}
+                                            )
+                                        }
+                                    }
+
                                     Spacer(modifier = Modifier.height(4.dp))
 
                                     Text(
@@ -585,100 +897,161 @@ fun ImportScreen(
                 }
             }
             // Number of Clips selector
+            // Wayin-style Options: Language & Clip Length Dropdown Selectors
             item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0x1F8D8FA6), RoundedCornerShape(20.dp))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(
-                            text = "Number of Clips to Generate",
-                            fontSize = 14.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "$numClips",
-                            fontSize = 16.sp,
-                            color = PrimaryNeon,
-                            fontWeight = FontWeight.Black
-                        )
+                        // Language Dropdown Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Language", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Box {
+                                OutlinedButton(
+                                    onClick = { languageDropdownExpanded = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3B8D8FA6))
+                                ) {
+                                    Text(text = selectedLanguage, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = TextMuted)
+                                }
+                                DropdownMenu(
+                                    expanded = languageDropdownExpanded,
+                                    onDismissRequest = { languageDropdownExpanded = false }
+                                ) {
+                                    listOf("Auto / No translation", "English", "Spanish", "French", "German", "Japanese", "Mandarin").forEach { lang ->
+                                        DropdownMenuItem(
+                                            text = { Text(lang, fontSize = 13.sp) },
+                                            onClick = {
+                                                selectedLanguage = lang
+                                                languageDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider(color = Color(0x1F8D8FA6))
+
+                        // Clip Length Dropdown Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Clip Length", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Box {
+                                OutlinedButton(
+                                    onClick = { lengthDropdownExpanded = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3B8D8FA6))
+                                ) {
+                                    Text(text = selectedClipLength, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Dropdown", tint = TextMuted)
+                                }
+                                DropdownMenu(
+                                    expanded = lengthDropdownExpanded,
+                                    onDismissRequest = { lengthDropdownExpanded = false }
+                                ) {
+                                    listOf("Auto (<90s)", "Short (<30s)", "Medium (30-60s)", "Long (60-90s)").forEach { len ->
+                                        DropdownMenuItem(
+                                            text = { Text(len, fontSize = 13.sp) },
+                                            onClick = {
+                                                selectedClipLength = len
+                                                lengthDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Slider(
-                        value = numClips.toFloat(),
-                        onValueChange = { numClips = it.toInt() },
-                        valueRange = 1f..8f,
-                        steps = 6,
-                        colors = SliderDefaults.colors(
-                            thumbColor = PrimaryNeon,
-                            activeTrackColor = PrimaryNeon,
-                            inactiveTrackColor = Color(0x3B8D8FA6)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
 
-            // Unified "Analyse & generate clips" outer CTA
+            // Unified "Create Viral Clips" CTA
             item {
                 val buttonEnabled = if (selectedImportTab == 0) inputUrl.isNotEmpty() else localVideoUri != null
-                Button(
-                    onClick = {
-                        if (selectedImportTab == 0) {
-                            if (inputUrl.isNotEmpty()) {
-                                val t = if (inputTitle.isNotEmpty()) inputTitle else "Custom Ingested Stream"
-                                val d = if (inputDesc.isNotEmpty()) inputDesc else "Custom imported high retention stream presentation."
-                                viewModel.importVideo(
-                                    title = t,
-                                    description = d,
-                                    sourceUrl = inputUrl,
-                                    duration = 120,
-                                    transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are exploring future-facing creative technology nodes, system architecture, engineering pipelines and scaling product concepts fast.",
-                                    numClips = numClips
-                                )
-                            }
-                        } else {
-                            localVideoUri?.let { uri ->
-                                val t = if (inputTitle.isNotEmpty()) inputTitle else localVideoName.substringBeforeLast(".")
-                                val d = if (inputDesc.isNotEmpty()) inputDesc else "Imported high retention device video file."
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (selectedImportTab == 0) {
+                                if (inputUrl.isNotEmpty()) {
+                                    val t = if (inputTitle.isNotEmpty()) inputTitle else "GEHGEH DIDN'T HOLD BACK: PELLER, JARVIS"
+                                    val d = if (inputDesc.isNotEmpty()) inputDesc else "High engagement interview podcast clip"
+                                    viewModel.importVideo(
+                                        title = t,
+                                        description = d,
+                                        sourceUrl = inputUrl,
+                                        duration = 120,
+                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we discuss tradition vs modernity, young marriage arguments, cultural expectations and personal growth.",
+                                        numClips = numClips
+                                    )
+                                }
+                            } else {
+                                localVideoUri?.let { uri ->
+                                    val t = if (inputTitle.isNotEmpty()) inputTitle else localVideoName.substringBeforeLast(".")
+                                    val d = if (inputDesc.isNotEmpty()) inputDesc else "Imported high retention device video file."
                                     viewModel.importVideo(
                                         title = t,
                                         description = d,
                                         sourceUrl = uri.toString(),
                                         duration = localVideoDuration,
-                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we are processing an uploaded local video file, configuring modern speech components, syncing responsive captions, and exporting short vertical highlights.",
+                                        transcript = if (inputDesc.isNotEmpty()) inputDesc else "Today we process uploaded local video files, configuring speech components, syncing responsive captions, and exporting short highlights.",
                                         numClips = numClips
                                     )
+                                }
                             }
-                        }
-                    },
-                    enabled = buttonEnabled,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimaryNeon,
-                        contentColor = Color.Black,
-                        disabledContainerColor = Color(0x1F8D8FA6),
-                        disabledContentColor = TextMuted
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                        .testTag("import_video_submit_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Sparkles",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                        },
+                        enabled = buttonEnabled,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PrimaryNeon,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color(0x1F8D8FA6),
+                            disabledContentColor = TextMuted
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag("import_video_submit_button")
+                    ) {
+                        Text(
+                            text = "Create Viral Clips",
+                            color = if (buttonEnabled) Color.Black else TextMuted,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp
+                        )
+                    }
                     Text(
-                        text = "Generate Viral Clips",
-                        color = if (buttonEnabled) Color.Black else TextMuted,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 16.sp,
-                        letterSpacing = 0.5.sp
+                        text = "By continuing, you confirm the video is your own. Using others' content may violate copyright laws.",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }
             }
@@ -800,30 +1173,41 @@ fun ImportScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "BAKING DYNAMIC CLIPS",
+                            text = "We're processing your video. This won't take long...",
                             color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
                         )
 
-                        // Progress Loader
-                        LinearProgressIndicator(
-                            progress = { progress / 100f },
-                            color = PrimaryNeon,
-                            trackColor = ContainerGrey,
+                        // Wayin-style Progress Box (Green pill background)
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.85f)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                        )
-
-                        Text(
-                            text = "$progress%",
-                            color = PrimaryNeon,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black
-                        )
+                                .fillMaxWidth(0.9f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(ContainerGrey)
+                                .border(1.dp, Color(0x3B8D8FA6), RoundedCornerShape(22.dp))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(progress / 100f)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(PrimaryNeon)
+                            )
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$progress%",
+                                    color = if (progress > 50) Color.Black else PrimaryNeon,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
 
                         // Analyzing step text description
                         Text(

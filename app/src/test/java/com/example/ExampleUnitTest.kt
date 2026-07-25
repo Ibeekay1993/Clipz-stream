@@ -26,8 +26,8 @@ class ExampleUnitTest {
     val baseUrl = BackendApiClient.getBaseUrl()
     assertNotNull(baseUrl)
     assertTrue(baseUrl.startsWith("http"))
-    // Ensure the fallback points to our core hosted Render backend
-    assertTrue(baseUrl.contains("clipz-stream.onrender.com") || baseUrl.contains("com.example.BuildConfig"))
+    // Ensure the fallback points to our core hosted Modal backend
+    assertTrue(baseUrl.contains("modal.run") || baseUrl.contains("com.example.BuildConfig"))
   }
 
   @Test
@@ -44,7 +44,7 @@ class ExampleUnitTest {
     assertTrue(requestJson.contains("num_clips"))
     assertTrue(requestJson.contains("jNQXAC9IVRw"))
 
-    // 2. Verify Response model serialization & compatibility with typical Render backend JSON outputs
+    // 2. Verify Response model serialization & compatibility with typical Modal backend JSON outputs
     val dummyResponseJson = """
       {
         "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",

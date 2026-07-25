@@ -428,48 +428,113 @@ fun EditorScreen(
                     }
                 }
 
-                Row(
+                // Wayin "All Moments" Title & Bulk Action Buttons
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Start
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(30.dp))
-                            .background(ContainerGrey)
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Text(
+                        text = "All Moments",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+
+                    // Bulk Actions Row (Create Montage, Bulk Edit, Bulk Schedule, Bulk Export)
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Stars",
-                            tint = PrimaryNeon,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Identified Clip Highlights",
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 12.sp
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(PrimaryNeon)
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "${filteredClips.size}",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black
-                            )
+                        item {
+                            Button(
+                                onClick = {},
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon, contentColor = Color.Black),
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.VideoCall, contentDescription = "Montage", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Create Montage", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
+                        item {
+                            OutlinedButton(
+                                onClick = {},
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3B8D8FA6)),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.EditNote, contentDescription = "Edit", modifier = Modifier.size(16.dp), tint = TextMuted)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Bulk Edit", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        item {
+                            OutlinedButton(
+                                onClick = {},
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3B8D8FA6)),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Schedule", modifier = Modifier.size(16.dp), tint = TextMuted)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Bulk Schedule", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        item {
+                            OutlinedButton(
+                                onClick = {},
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x3B8D8FA6)),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Export", modifier = Modifier.size(16.dp), tint = TextMuted)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Bulk Export", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    // Tab Indicator row: Viral Moments tab + Find More Moments button
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(ContainerGrey)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = "Viral", tint = PrimaryNeon, modifier = Modifier.size(14.dp))
+                            Text("Viral Moments", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(PrimaryNeon)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("${filteredClips.size}", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+
+                        Text(
+                            text = "+ Find More Moments",
+                            color = Color(0xFFFFB800),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable {}
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Beautiful adaptive Grid representing LClipz Video card moments deck
                 LazyVerticalGrid(
@@ -534,55 +599,33 @@ fun EditorScreen(
                                             }
                                     )
 
-                                    // Time stamp duration badge top-right of Thumbnail
+                                    // Time stamp duration range badge (Wayin-style 00:00 -> 00:25) top-right of Thumbnail
+                                    val startM = clip.startSec / 60
+                                    val startS = clip.startSec % 60
+                                    val endM = clip.endSec / 60
+                                    val endS = clip.endSec % 60
+                                    val timeRangeStr = String.format("%02d:%02d ➔ %02d:%02d", startM, startS, endM, endS)
+
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(8.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color.Black.copy(alpha = 0.75f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.Black.copy(alpha = 0.85f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
-                                            text = "${duration}s",
+                                            text = timeRangeStr,
                                             color = Color.White,
-                                            fontSize = 10.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-                                    }
-
-                                    // Viral Score Badge sits directly on the thumbnail (bottom-left corner)
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(10.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(PrimaryNeon)
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.AutoAwesome,
-                                                contentDescription = "Highlight",
-                                                tint = Color.Black,
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                            Text(
-                                                text = "${clip.viralScore} Score",
-                                                color = Color.Black,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
                                     }
 
                                     // Dynamic Play overlay circle icon
                                     Box(
                                         modifier = Modifier
-                                            .size(44.dp)
+                                            .size(48.dp)
                                             .clip(CircleShape)
                                             .background(Color.Black.copy(alpha = 0.5f))
                                             .border(1.5.dp, Color.White, CircleShape),
@@ -592,131 +635,86 @@ fun EditorScreen(
                                             imageVector = Icons.Default.PlayArrow,
                                             contentDescription = "Play icon overlay",
                                             tint = Color.White,
-                                            modifier = Modifier.size(22.dp)
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
                                 }
 
-                                // Details block below thumbnail
-                                Column(modifier = Modifier.padding(14.dp)) {
+                                // Details block below thumbnail (Wayin layout)
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    // Title of moment
+                                    Text(
+                                        text = clip.title,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    // Score Bar indicator & /100 score badge
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(ContainerGrey)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(clip.viralScore / 100f)
+                                                    .clip(RoundedCornerShape(3.dp))
+                                                    .background(PrimaryNeon)
+                                            )
+                                        }
+                                        Text(
+                                            text = "${clip.viralScore}/100",
+                                            color = PrimaryNeon,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+
+                                    // Action Toolbar Row (Like, Dislike, Bookmark, Share, Edit, Download, More)
+                                    val cardContext = androidx.compose.ui.platform.LocalContext.current
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = clip.title,
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        // Small, clean per-card Action Icons (Scissors and Send)
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            // Scissors Icon to open editor
-                                            IconButton(
-                                                onClick = { viewModel.selectClip(clip) },
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .background(ContainerGrey, CircleShape)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentCut,
-                                                    contentDescription = "Edit Clip",
-                                                    tint = PrimaryNeon,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-
-                                            // Send / Share Icon
-                                            val cardContext = androidx.compose.ui.platform.LocalContext.current
-                                            IconButton(
-                                                onClick = {
-                                                    val sendIntent = android.content.Intent().apply {
-                                                        action = android.content.Intent.ACTION_SEND
-                                                        val titleText = "Check out this LClipz Moment: \"${clip.title}\""
-                                                        val extraText = "$titleText\n\nVirality Score: ${clip.viralScore}/100\nReason: ${clip.viralReason}"
-                                                        putExtra(android.content.Intent.EXTRA_TITLE, clip.title)
-                                                        putExtra(android.content.Intent.EXTRA_SUBJECT, clip.title)
-                                                        putExtra(android.content.Intent.EXTRA_TEXT, extraText)
-                                                        val filePath = clip.exportedFilePath
-                                                        if (!filePath.isNullOrBlank()) {
-                                                            val file = java.io.File(filePath)
-                                                            if (file.exists()) {
-                                                                try {
-                                                                    val fileUri: android.net.Uri = androidx.core.content.FileProvider.getUriForFile(
-                                                                        cardContext,
-                                                                        "com.example.fileprovider",
-                                                                        file
-                                                                    )
-                                                                    putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
-                                                                    type = "video/mp4"
-                                                                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                                } catch (e: Exception) {
-                                                                    type = "text/plain"
-                                                                }
-                                                            } else {
-                                                                type = "text/plain"
-                                                            }
-                                                        } else {
-                                                            type = "text/plain"
-                                                        }
-                                                    }
-                                                    cardContext.startActivity(android.content.Intent.createChooser(sendIntent, "Share Viral Clip"))
-                                                },
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .background(ContainerGrey, CircleShape)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Share,
-                                                    contentDescription = "Share Clip",
-                                                    tint = PrimaryNeon,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.ThumbUp, contentDescription = "Like", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {})
+                                            Icon(Icons.Default.ThumbDown, contentDescription = "Dislike", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {})
+                                            Icon(Icons.Default.BookmarkBorder, contentDescription = "Save", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {})
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Send, contentDescription = "Share", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {
+                                                val sendIntent = android.content.Intent().apply {
+                                                    action = android.content.Intent.ACTION_SEND
+                                                    putExtra(android.content.Intent.EXTRA_TEXT, "Check out this clip: ${clip.title}")
+                                                    type = "text/plain"
+                                                }
+                                                cardContext.startActivity(android.content.Intent.createChooser(sendIntent, "Share Clip"))
+                                            })
+                                            Icon(Icons.Default.ContentCut, contentDescription = "Crop", tint = PrimaryNeon, modifier = Modifier.size(18.dp).clickable { viewModel.selectClip(clip) })
+                                            Icon(Icons.Default.Download, contentDescription = "Download", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {})
+                                            Icon(Icons.Default.MoreHoriz, contentDescription = "More", tint = TextMuted, modifier = Modifier.size(18.dp).clickable {})
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    // Viral Highlight reason tag
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.TrendingUp,
-                                            contentDescription = "Trending",
-                                            tint = PrimaryNeon,
-                                            modifier = Modifier.size(10.dp)
-                                        )
-                                        Text(
-                                            text = "HOOK SCORE ${clip.viralScore} · VIRAL HIGHLIGHT",
-                                            color = PrimaryNeon,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 0.5.sp
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    // Reason text description
+                                    // AI Summary paragraph text
                                     Text(
                                         text = clip.viralReason,
                                         color = TextMuted,
-                                        fontSize = 11.sp,
-                                        lineHeight = 15.sp,
-                                        maxLines = 2,
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp,
+                                        maxLines = 3,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
