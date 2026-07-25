@@ -127,8 +127,8 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
-            'retries': 3,
-            'socket_timeout': 30,
+            'retries': 1,
+            'socket_timeout': 6,
             'extractor_args': {
                 'youtube': {
                     'player_client': client_list,
@@ -418,7 +418,10 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
         "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
     ]
-    subprocess.run(cmd, capture_output=True, text=True, check=True)
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        logger.error(f"FFmpeg transcoding failed (exit code {res.returncode}): {res.stderr}")
+        raise Exception(f"FFmpeg transcode failed: {res.stderr[-300:] if res.stderr else 'Unknown error'}")
     if os.path.exists(ass_path):
         try: os.remove(ass_path)
         except: pass

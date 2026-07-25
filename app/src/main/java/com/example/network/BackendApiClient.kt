@@ -95,9 +95,9 @@ object BackendApiClient {
         .build()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS) // 10 minutes for long video/podcast processing
+        .writeTimeout(600, TimeUnit.SECONDS)
         .build()
 
     fun getBaseUrl(): String {
