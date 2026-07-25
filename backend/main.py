@@ -109,11 +109,10 @@ def download_video_ingest(url: str, out_dir: str) -> str:
     po_token = os.getenv("YTDLP_PO_TOKEN")  # optional, see README for how to mint one
 
     # Client fallback order tuned for current YouTube bot-checks:
-    # - mweb / web / android client has highest success rate on datacenter IPs without PO tokens
-    # - tv_embedded / web_embedded as backup personas
+    # - tv_embedded & android bypass YouTube captcha challenges on datacenter IPs
     clients_attempts = [
-        ['mweb', 'web', 'android'],
         ['tv_embedded'],
+        ['android'],
         ['web_embedded'],
         ['ios'],
     ]
