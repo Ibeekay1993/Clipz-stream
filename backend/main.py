@@ -330,13 +330,90 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         f.write(header + "\n".join(lines_events))
 
 # ============================================================================
-# TIER 3: DELIVERY LAYER (FFmpeg Safe Crop & Supabase)
+# TIER 3: DELIVERY LAYER (FFmpeg OpenCV Face-Tracking Crop & Supabase)
 # ============================================================================
+def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fps: float = 2.0) -> List[Tuple[float, float]]:
+    """Sample video frames between start_sec and end_sec, detect faces with OpenCV Haar Cascade, return [(t_rel, norm_x)]"""
+    try:
+        import cv2
+        if not os.path.exists(vpath): return []
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        if not os.path.exists(cascade_path): return []
+        
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        cap = cv2.VideoCapture(vpath)
+        if not cap.isOpened(): return []
+        
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        width = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1920.0
+        
+        start_frame = int(start_sec * fps)
+        end_frame = int(end_sec * fps)
+        frame_step = max(1, int(fps / sample_fps))
+        
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        current_frame = start_frame
+        points = []
+        
+        while current_frame <= end_frame:
+            ret, frame = cap.read()
+            if not ret: break
+            t_rel = (current_frame - start_frame) / fps
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60))
+            if len(faces) > 0:
+                largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
+                x, y, w, h = largest_face
+                center_x_norm = (x + w / 2.0) / width
+                points.append((t_rel, center_x_norm))
+            current_frame += frame_step
+            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+        cap.release()
+        return points
+    except Exception as e:
+        logger.warning(f"OpenCV face tracking error: {e}")
+        return []
+
+def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
+    """Build dynamic FFmpeg linear interpolation crop x expression from face points"""
+    if not points: return "(in_w-out_w)/2"
+    smoothed = []
+    curr_bin = None
+    bin_vals = []
+    for t, x_norm in points:
+        t_sec = int(t)
+        if curr_bin is None: curr_bin = t_sec
+        if t_sec == curr_bin:
+            bin_vals.append(x_norm)
+        else:
+            smoothed.append((curr_bin, sum(bin_vals) / len(bin_vals)))
+            curr_bin = t_sec
+            bin_vals = [x_norm]
+    if bin_vals and curr_bin is not None:
+        smoothed.append((curr_bin, sum(bin_vals) / len(bin_vals)))
+    if not smoothed: return "(in_w-out_w)/2"
+    
+    expr_parts = []
+    for t_sec, norm_x in smoothed:
+        target_x = f"min(max(0,in_w*{norm_x:.3f}-out_w/2),in_w-out_w)"
+        expr_parts.append(f"gte(t,{t_sec:.1f}),{target_x}")
+        
+    expr = "(in_w-out_w)/2"
+    for part in reversed(expr_parts):
+        cond, val = part.split(",", 1)
+        expr = f"if({cond},{val},{expr})"
+    return expr
+
 def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None) -> str:
-    """Safe FFmpeg crop + ASS Kinetic Burned-In Subtitles + Supabase CDN Upload"""
+    """Safe FFmpeg crop + OpenCV Face-Tracking + ASS Kinetic Subtitles + Supabase CDN Upload"""
     dur = end - start
     
-    # Generate ASS Subtitle File if words provided
+    # 1. Analyze face positions for dynamic 9:16 speaker tracking
+    face_pts = analyze_face_centers(src, start, end)
+    crop_x_expr = build_dynamic_crop_x_expr(face_pts)
+    logger.info(f"OpenCV Face Tracking generated {len(face_pts)} face samples. Crop X expr: {crop_x_expr[:60]}...")
+    
+    # 2. Generate ASS Subtitle File if words provided
     ass_path = out + ".ass"
     use_subtitles = False
     if words:
@@ -346,11 +423,12 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
         except Exception as e:
             logger.warning(f"ASS subtitle generation failed: {e}")
             
+    crop_filter = f"scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=720:1280"
     if use_subtitles:
         escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
-        vf = f"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,subtitles='{escaped_ass}',fps=30"
+        vf = f"{crop_filter},subtitles='{escaped_ass}',fps=30"
     else:
-        vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30"
+        vf = f"{crop_filter},fps=30"
         
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
