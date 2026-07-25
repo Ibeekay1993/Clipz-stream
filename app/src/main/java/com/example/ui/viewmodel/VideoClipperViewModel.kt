@@ -335,36 +335,29 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
-                            // Wayin / Opus Clip Fast Asynchronous Job Polling Loop
-                            val jobResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
-                            val jobId = jobResp.job_id
-                            
-                            var finalResult: com.example.network.BackendProcessResponse? = null
-                            var simulatedProgress = 20
-                            while (finalResult == null) {
-                                kotlinx.coroutines.delay(1000)
-                                try {
-                                    val status = BackendApiClient.service.getJobStatus(jobId)
-                                    simulatedProgress = (simulatedProgress + 15).coerceAtMost(92)
-                                    val progress = if (status.progress > 0) status.progress.coerceIn(15, 95) else simulatedProgress
-                                    val step = status.current_step ?: "Groq AI Virality Analysis & Captioning..."
-                                    _loadingState.value = LoadingState.Analyzing(progress, step, "")
-                                    
-                                    if (status.status == "completed" && status.result != null) {
-                                        finalResult = status.result
-                                    } else if (status.status == "failed") {
-                                        throw Exception(status.error ?: "AI processing job failed")
-                                    }
-                                } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) throw e
-                                    simulatedProgress = (simulatedProgress + 10).coerceAtMost(90)
-                                    _loadingState.value = LoadingState.Analyzing(simulatedProgress, "AI Engine Analyzing Speech & Highlights...", "")
-                                    if (simulatedProgress >= 90) {
-                                        break
-                                    }
+                            // Direct synchronous call to Modal GPU cloud pipeline
+                            // Launch a background coroutine to update UI progress while waiting for Modal
+                            val progressJob = viewModelScope.launch(Dispatchers.Main) {
+                                val steps = listOf(
+                                    18 to "Modal GPU: Ingesting high-definition media stream...",
+                                    35 to "Whisper AI: Synthesizing frame-aligned transcript...",
+                                    55 to "Groq Llama-3-70B: Analyzing viral hooks & retention...",
+                                    75 to "OpenCV: Tracking face focus & 9:16 portrait crop...",
+                                    90 to "Supabase: Transcoding & publishing CDN clips..."
+                                )
+                                for ((prog, msg) in steps) {
+                                    delay(2200)
+                                    _loadingState.value = LoadingState.Analyzing(prog, msg, "")
                                 }
                             }
-                            finalResult
+                            try {
+                                val resp = BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = numClips))
+                                progressJob.cancel()
+                                resp
+                            } catch (e: Exception) {
+                                progressJob.cancel()
+                                throw e
+                            }
                         }
                     }
                     _loadingState.value = LoadingState.Analyzing(90, "Finalizing Clips...", "")
