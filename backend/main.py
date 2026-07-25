@@ -162,12 +162,33 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             logger.warning(f"Client list {client_list} failed: {msg}")
             time.sleep(1.5 * (attempt + 1))  # brief backoff before trying the next client persona
 
-    # Check if file was saved under a slightly different name/extension by a partially-successful attempt
-    for f in os.listdir(out_dir):
-        if f.startswith("video_"):
-            p = os.path.join(out_dir, f)
-            if os.path.getmtime(p) > time.time() - 300 and os.path.getsize(p) > 100_000:
-                return p
+    # Fallback: Parse m.youtube.com/watch?v= directly for ytInitialPlayerResponse stream URL
+    try:
+        vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
+        if vid_match:
+            v_id = vid_match.group(1)
+            m_url = f"https://m.youtube.com/watch?v={v_id}"
+            headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"}
+            req = requests.get(m_url, headers=headers, timeout=10)
+            if req.status_code == 200:
+                match = re.search(r'ytInitialPlayerResponse\s*=\s*({.*?});', req.text)
+                if match:
+                    p_data = json.loads(match.group(1))
+                    fmts = p_data.get("streamingData", {}).get("formats", []) + p_data.get("streamingData", {}).get("adaptiveFormats", [])
+                    for f in fmts:
+                        direct_u = f.get("url")
+                        mime = f.get("mimeType", "")
+                        if direct_u and "mp4" in mime:
+                            logger.info(f"Downloading stream directly via mobile web parse: {direct_u[:80]}...")
+                            stream_resp = requests.get(direct_u, headers=headers, stream=True, timeout=30)
+                            if stream_resp.status_code == 200:
+                                with open(out_file, "wb") as f_out:
+                                    for chunk in stream_resp.iter_content(chunk_size=1024*1024):
+                                        if chunk: f_out.write(chunk)
+                                if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
+                                    return out_file
+    except Exception as fallback_e:
+        logger.warning(f"Mobile web stream extraction fallback failed: {fallback_e}")
 
     if bot_check_hit:
         raise IngestionBlockedError(

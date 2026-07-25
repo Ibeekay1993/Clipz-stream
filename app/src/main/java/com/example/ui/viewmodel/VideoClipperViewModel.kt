@@ -1298,29 +1298,39 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                 .followRedirects(true)
                 .build()
                 
-            val instances = listOf("https://invidious.nerdvpn.de", "https://inv.hostux.net", "https://api.piped.video")
             var mediaStreamUrl: String? = null
-            for (inst in instances) {
-                try {
-                    val req = Request.Builder().url("$inst/api/v1/videos/$videoId").header("User-Agent", "Mozilla/5.0").build()
-                    val response = client.newCall(req).execute()
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        response.close()
-                        val match = Regex(""""url":\s*"([^"]+)"""").find(body)
-                        if (match != null) {
-                            mediaStreamUrl = match.groupValues[1]
-                            break
+            try {
+                val pageUrl = "https://m.youtube.com/watch?v=$videoId"
+                val req = Request.Builder()
+                    .url(pageUrl)
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+                    .build()
+                val response = client.newCall(req).execute()
+                if (response.isSuccessful) {
+                    val html = response.body?.string() ?: ""
+                    response.close()
+                    val match = Regex("""ytInitialPlayerResponse\s*=\s*(\{.*?\});""").find(html)
+                    if (match != null) {
+                        val jsonStr = match.groupValues[1]
+                        val matchUrl = Regex(""""url":\s*"([^"]+)"""").findAll(jsonStr)
+                        for (m in matchUrl) {
+                            val u = m.groupValues[1].replace("\\u0026", "&")
+                            if (u.contains("mp4") || u.contains("videoplayback")) {
+                                mediaStreamUrl = u
+                                break
+                            }
                         }
-                    } else {
-                        response.close()
                     }
-                } catch (e: Exception) { continue }
+                } else {
+                    response.close()
+                }
+            } catch (e: Exception) {
+                Log.e("VideoClipperViewModel", "Mobile web stream extraction error: ${e.message}")
             }
             
             if (mediaStreamUrl != null) {
                 val file = File(context.cacheDir, "yt_${videoId}.mp4")
-                val req = Request.Builder().url(mediaStreamUrl!!).build()
+                val req = Request.Builder().url(mediaStreamUrl!!).header("User-Agent", "Mozilla/5.0").build()
                 val response = client.newCall(req).execute()
                 if (response.isSuccessful && response.body != null) {
                     val inputStream = response.body!!.byteStream()
