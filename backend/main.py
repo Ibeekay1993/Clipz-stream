@@ -516,17 +516,15 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         chosen_chunks = [(c, c.title()) for c in chosen]
 
     update_job(60, "FFmpeg 9:16 Safe Crop & Supabase CDN Transcoding...")
-    logger.info("Transcoding and uploading clips...")
-    clips_out = []
-    
-    total = len(chosen_chunks)
-    for i, (chunk, title_text) in enumerate(chosen_chunks):
-        prog_inc = int(60 + ((i + 1) / max(1, total)) * 35)
-        update_job(prog_inc, f"Transcoding clip {i+1} of {total}...")
-        
+    logger.info("Transcoding and uploading clips in parallel...")
+    clips_out = [None] * len(chosen_chunks)
+
+    import concurrent.futures
+
+    def process_single_chunk(index_and_tuple):
+        i, (chunk, title_text) = index_and_tuple
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
-        
         try:
             clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words)
             if clip_url.startswith("/clips/"):
@@ -534,16 +532,25 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 
             off = chunk.words[0]["startMs"]
             captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
-            
             t_clean = title_text if title_text.startswith("🔥") or title_text.startswith("⚡") else f"🔥 {title_text}"
-            clips_out.append({
+            return i, {
                 "title": t_clean, "startSec": int(chunk.start), "endSec": int(chunk.end),
                 "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
                 "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
                 "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
-            })
+            }
         except Exception as e:
             logger.error(f"Failed to transcode chunk {i}: {e}")
+            return i, None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(chosen_chunks))) as executor:
+        futures = [executor.submit(process_single_chunk, (i, chunk_tuple)) for i, chunk_tuple in enumerate(chosen_chunks)]
+        for future in concurrent.futures.as_completed(futures):
+            idx, res_data = future.result()
+            if res_data:
+                clips_out[idx] = res_data
+
+    clips_out = [c for c in clips_out if c is not None]
 
     result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
     update_job(100, "Complete")
