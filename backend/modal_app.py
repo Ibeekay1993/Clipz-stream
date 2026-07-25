@@ -16,7 +16,13 @@ image = (
         "python-dotenv",
         "requests",
         "aiohttp",
-        "python-multipart"
+        "python-multipart",
+        "opencv-python-headless"
+    )
+    .env({"BUILD_ID": "20260725_v9"})
+    .add_local_file(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"),
+        remote_path="/root/main.py"
     )
     .add_local_dir(
         os.path.dirname(os.path.abspath(__file__)),
@@ -29,12 +35,16 @@ app = modal.App("clipz-stream")
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("clipz-secrets")]
+    secrets=[modal.Secret.from_name("clipz-secrets")],
+    timeout=600,
+    cpu=2.0
 )
 @modal.asgi_app()
 def fastapi_app():
-    import sys
-    # Add backend folder to path so main.py can be imported
-    sys.path.append("/root/backend")
-    from main import app as fastapi_web_app
-    return fastapi_web_app
+    import importlib.util
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    main_path = os.path.join(backend_dir, "main.py")
+    spec = importlib.util.spec_from_file_location("main_backend_module", main_path)
+    main_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(main_mod)
+    return main_mod.app

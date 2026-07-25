@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -335,29 +336,39 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                             val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
                             BackendApiClient.service.uploadVideo(body, numClipsPart)
                         } else {
-                            // Direct synchronous call to Modal GPU cloud pipeline
-                            // Launch a background coroutine to update UI progress while waiting for Modal
-                            val progressJob = viewModelScope.launch(Dispatchers.Main) {
-                                val steps = listOf(
-                                    18 to "Modal GPU: Ingesting high-definition media stream...",
-                                    35 to "Whisper AI: Synthesizing frame-aligned transcript...",
-                                    55 to "Groq Llama-3-70B: Analyzing viral hooks & retention...",
-                                    75 to "OpenCV: Tracking face focus & 9:16 portrait crop...",
-                                    90 to "Supabase: Transcoding & publishing CDN clips..."
-                                )
-                                for ((prog, msg) in steps) {
-                                    delay(2200)
-                                    _loadingState.value = LoadingState.Analyzing(prog, msg, "")
+                            // High-performance async job polling pipeline (OpusClip / Klap style)
+                            _loadingState.value = LoadingState.Analyzing(5, "Connecting to Cloud AI Engine...", "")
+                            val createResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
+                            val jobId = createResp.job_id
+                            
+                            var jobResult: com.example.network.BackendProcessResponse? = null
+                            val pollStartTime = System.currentTimeMillis()
+                            
+                            while (isActive) {
+                                delay(1500)
+                                val statusResp = BackendApiClient.service.getJobStatus(jobId)
+                                val currentStepMsg = statusResp.current_step ?: "Cloud GPU AI Processing..."
+                                val progVal = statusResp.progress.coerceAtLeast(5)
+                                
+                                _loadingState.value = LoadingState.Analyzing(progVal, currentStepMsg, "")
+                                
+                                if (statusResp.status == "completed") {
+                                    jobResult = statusResp.result
+                                    break
+                                } else if (statusResp.status == "failed") {
+                                    throw Exception(statusResp.error ?: "Cloud AI processing failed")
+                                }
+                                
+                                // 10-minute timeout safeguard
+                                if (System.currentTimeMillis() - pollStartTime > 600_000L) {
+                                    throw Exception("Job processing timed out after 10 minutes")
                                 }
                             }
-                            try {
-                                val resp = BackendApiClient.service.processVideo(BackendProcessRequest(url = rawUrl, num_clips = numClips))
-                                progressJob.cancel()
-                                resp
-                            } catch (e: Exception) {
-                                progressJob.cancel()
-                                throw e
+                            
+                            if (jobResult == null) {
+                                throw Exception("Cloud processing produced no output result")
                             }
+                            jobResult
                         }
                     }
                     _loadingState.value = LoadingState.Analyzing(90, "Finalizing Clips...", "")

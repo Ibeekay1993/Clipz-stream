@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os, re, uuid, time, subprocess, shutil, json, tempfile, requests
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional, Any
@@ -314,7 +315,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # ============================================================================
 # TIER 3: DELIVERY LAYER (FFmpeg OpenCV Face-Tracking Crop & Supabase)
 # ============================================================================
-def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fps: float = 2.0) -> List[Tuple[float, float]]:
+def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fps: float = 2.0) -> list:
     """Sample video frames between start_sec and end_sec, detect faces with OpenCV Haar Cascade, return [(t_rel, norm_x)]"""
     try:
         import cv2
@@ -407,8 +408,8 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
             
     crop_filter = f"scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=720:1280"
     if use_subtitles:
-        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
-        vf = f"{crop_filter},subtitles='{escaped_ass}',fps=30"
+        sub_filename = os.path.basename(ass_path)
+        vf = f"{crop_filter},subtitles={sub_filename},fps=30"
     else:
         vf = f"{crop_filter},fps=30"
         
