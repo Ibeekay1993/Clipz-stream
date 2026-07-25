@@ -122,6 +122,8 @@ def download_video_ingest(url: str, out_dir: str) -> str:
     for attempt, client_list in enumerate(clients_attempts):
         ydl_opts = {
             'format': 'best[height<=720][ext=mp4]/best[height<=720]/best',
+            'merge_output_format': 'mp4',
+            'final_ext': 'mp4',
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
@@ -177,22 +179,7 @@ def download_video_ingest(url: str, out_dir: str) -> str:
     except Exception as fallback_e:
         logger.warning(f"Direct stream extraction fallback failed: {fallback_e}")
 
-    logger.warning(f"Ingestion bot-check hit or yt-dlp failed for {url}. Fetching HD fallback media asset...")
-    try:
-        sample_url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(sample_url, headers=headers, stream=True, timeout=30)
-        if resp.status_code == 200:
-            with open(out_file, "wb") as f_out:
-                for chunk in resp.iter_content(chunk_size=1024*1024):
-                    if chunk: f_out.write(chunk)
-            if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
-                logger.info(f"Fallback HD video successfully downloaded to {out_file}")
-                return out_file
-    except Exception as sample_e:
-        logger.error(f"Fallback sample video download error: {sample_e}")
-
-    raise Exception(f"Ingestion failed for {url}: {last_error}.")
+    raise Exception(f"Ingestion failed for {url}: {last_error if last_error else 'Stream unavailable'}. Please try another link or upload a local file.")
 
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
