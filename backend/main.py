@@ -131,12 +131,13 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             'fragment_retries': 3,
             'socket_timeout': 20,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 11; en_US) gzip',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
             },
             'extractor_args': {
                 'youtube': {
-                    'player_client': client_list,
+                    'player_client': ['android', 'tv_embedded'],
                     **({'po_token': [po_token]} if po_token else {}),
                 }
             },
