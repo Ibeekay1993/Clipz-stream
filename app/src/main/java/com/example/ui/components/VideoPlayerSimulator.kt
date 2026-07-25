@@ -877,16 +877,12 @@ fun RenderDynamicCaptions(
 fun extractYoutubeId(url: String): String? {
     return try {
         val trimmed = url.trim()
-        if (trimmed.contains("youtu.be/")) {
-            trimmed.substringAfter("youtu.be/").substringBefore("?").substringBefore("/")
-        } else if (trimmed.contains("youtube.com/embed/")) {
-            trimmed.substringAfter("youtube.com/embed/").substringBefore("?").substringBefore("/")
-        } else if (trimmed.contains("/shorts/")) {
-            trimmed.substringAfter("/shorts/").substringBefore("?").substringBefore("/")
-        } else if (trimmed.contains("v=")) {
-            trimmed.substringAfter("v=").substringBefore("&")
-        } else if (trimmed.contains("/watch/")) {
-            trimmed.substringAfter("/watch/").substringBefore("?").substringBefore("/")
+        val regex = Regex("""(?:v=|\/embed\/|\/shorts\/|youtu\.be\/|\/v\/|\/e\/|watch\?.*v=)([a-zA-Z0-9_-]{11})""")
+        val match = regex.find(trimmed)
+        if (match != null) {
+            match.groupValues[1]
+        } else if (trimmed.length == 11 && trimmed.all { it.isLetterOrDigit() || it == '_' || it == '-' }) {
+            trimmed
         } else {
             null
         }

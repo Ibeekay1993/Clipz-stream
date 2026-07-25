@@ -485,17 +485,46 @@ fun ImportScreen(
                                                             settings.javaScriptEnabled = true
                                                             settings.domStorageEnabled = true
                                                             settings.mediaPlaybackRequiresUserGesture = false
-                                                            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                                             webViewClient = WebViewClient()
                                                             webChromeClient = WebChromeClient()
-                                                            loadUrl("https://www.youtube.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1")
+                                                            val embedHtml = """
+                                                                <!DOCTYPE html>
+                                                                <html>
+                                                                <head>
+                                                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                                                <style>
+                                                                body, html { margin:0; padding:0; width:100%; height:100%; background-color:#000; overflow:hidden; }
+                                                                iframe { width:100%; height:100%; border:none; }
+                                                                </style>
+                                                                </head>
+                                                                <body>
+                                                                <iframe src="https://www.youtube-nocookie.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                                                </body>
+                                                                </html>
+                                                            """.trimIndent()
+                                                            loadDataWithBaseURL("https://www.youtube-nocookie.com", embedHtml, "text/html", "UTF-8", null)
                                                         }
                                                     },
                                                     update = { view ->
                                                         val tag = view.tag as? String
-                                                        if (tag != inputUrl) {
-                                                            view.loadUrl("https://www.youtube.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1")
-                                                            view.tag = inputUrl
+                                                        if (tag != ytPreviewId) {
+                                                            val embedHtml = """
+                                                                <!DOCTYPE html>
+                                                                <html>
+                                                                <head>
+                                                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                                                <style>
+                                                                body, html { margin:0; padding:0; width:100%; height:100%; background-color:#000; overflow:hidden; }
+                                                                iframe { width:100%; height:100%; border:none; }
+                                                                </style>
+                                                                </head>
+                                                                <body>
+                                                                <iframe src="https://www.youtube-nocookie.com/embed/$ytPreviewId?autoplay=1&mute=0&controls=1&playsinline=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                                                                </body>
+                                                                </html>
+                                                            """.trimIndent()
+                                                            view.loadDataWithBaseURL("https://www.youtube-nocookie.com", embedHtml, "text/html", "UTF-8", null)
+                                                            view.tag = ytPreviewId
                                                         }
                                                     },
                                                     modifier = Modifier.fillMaxSize()
@@ -516,7 +545,7 @@ fun ImportScreen(
                                                 )
                                             }
 
-                                            // Top Right Duration Badge
+                                            // Top Right Source Badge
                                             Box(
                                                 modifier = Modifier
                                                     .align(Alignment.TopEnd)
@@ -526,9 +555,9 @@ fun ImportScreen(
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
-                                                    text = "01:32:29",
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
+                                                    text = if (ytPreviewId != null) "YOUTUBE HD" else "MP4 SOURCE",
+                                                    color = PrimaryNeon,
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
