@@ -205,30 +205,56 @@ def transcribe(video_path: str) -> List[dict]:
     audio_path = video_path + ".mp3"
     subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-c:a", "libmp3lame", "-q:a", "5", audio_path], check=True, capture_output=True)
     
-    # 2. Call Groq
+    # 2. Call Groq with native word-level timestamps
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     with open(audio_path, "rb") as f:
         resp = client.audio.transcriptions.create(
             file=("audio.mp3", f),
             model="whisper-large-v3",
-            response_format="verbose_json"
+            response_format="verbose_json",
+            timestamp_granularities=["word"]
         )
-    os.remove(audio_path)
+    if os.path.exists(audio_path):
+        os.remove(audio_path)
     
-    # 3. Parse words
+    # 3. Parse word-level timestamps directly from Groq if available
     out = []
-    data = resp.model_dump()
-    for seg in data.get("segments", []):
-        text = seg.get("text", "").strip()
-        start = seg.get("start", 0.0)
-        end = seg.get("end", 0.0)
-        words = text.split()
-        if not words: continue
-        duration_per_word = (end - start) / len(words)
-        for i, w in enumerate(words):
-            w_start = start + (i * duration_per_word)
-            w_end = w_start + duration_per_word
-            out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
+    data = resp.model_dump() if hasattr(resp, "model_dump") else (resp if isinstance(resp, dict) else {})
+    
+    top_words = data.get("words", [])
+    if top_words:
+        for w in top_words:
+            w_text = w.get("word", "").strip()
+            if w_text:
+                out.append({
+                    "word": w_text,
+                    "startMs": int(w.get("start", 0.0) * 1000),
+                    "endMs": int(w.get("end", 0.0) * 1000)
+                })
+    else:
+        for seg in data.get("segments", []):
+            seg_words = seg.get("words", [])
+            if seg_words:
+                for w in seg_words:
+                    w_text = w.get("word", "").strip()
+                    if w_text:
+                        out.append({
+                            "word": w_text,
+                            "startMs": int(w.get("start", 0.0) * 1000),
+                            "endMs": int(w.get("end", 0.0) * 1000)
+                        })
+            else:
+                # Fallback to even split if no word array returned
+                text = seg.get("text", "").strip()
+                start = seg.get("start", 0.0)
+                end = seg.get("end", 0.0)
+                words = text.split()
+                if not words: continue
+                duration_per_word = (end - start) / len(words)
+                for i, w in enumerate(words):
+                    w_start = start + (i * duration_per_word)
+                    w_end = w_start + duration_per_word
+                    out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
     return out
 
 def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 10, max_dur_ms: int = 90_000) -> List[Chunk]:
@@ -544,7 +570,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.error(f"Failed to transcode chunk {i}: {e}")
             return i, None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(chosen_chunks))) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, len(chosen_chunks))) as executor:
         futures = [executor.submit(process_single_chunk, (i, chunk_tuple)) for i, chunk_tuple in enumerate(chosen_chunks)]
         for future in concurrent.futures.as_completed(futures):
             idx, res_data = future.result()
@@ -554,6 +580,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     clips_out = [c for c in clips_out if c is not None]
 
     result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
+    logger.info(f"Pipeline completed successfully. Generated {len(clips_out)} viable clips.")
     update_job(100, "Complete")
     return result
 
@@ -647,7 +674,7 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("ffmpeg")
-        .pip_install("fastapi", "yt-dlp", "groq", "requests", "supabase", "python-dotenv", "python-multipart")
+        .pip_install("fastapi", "yt-dlp", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless")
     )
     modal_app = modal.App("clipz-stream-fastapi-app")
     
