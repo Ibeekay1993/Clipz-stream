@@ -434,8 +434,8 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
             
     crop_filter = f"scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=720:1280"
     if use_subtitles:
-        sub_filename = os.path.basename(ass_path)
-        vf = f"{crop_filter},subtitles={sub_filename},fps=30"
+        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+        vf = f"{crop_filter},subtitles='{escaped_ass}',fps=30"
     else:
         vf = f"{crop_filter},fps=30"
         

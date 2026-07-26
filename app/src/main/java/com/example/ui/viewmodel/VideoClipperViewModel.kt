@@ -471,43 +471,41 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             // Fallback to traditional local/Gemini flow if Backend failed
             var apiClipsResponse: com.example.network.GeminiClipsListResponse? = null
             if (!isBackendSuccess) {
-                if (true) {
-                    val extractedId = extractYoutubeId(rawUrl)
-                    if (extractedId != null) {
-                        _loadingState.value = LoadingState.Analyzing(8, "Importing Video...", "")
-                        val fetchedTitle = fetchYoutubeTitle(rawUrl)
-                        if (fetchedTitle != null) {
-                            finalTitle = fetchedTitle
-                            finalDesc = "Automated ingest of YouTube video: $fetchedTitle"
-                        }
+                val extractedId = extractYoutubeId(rawUrl)
+                if (extractedId != null) {
+                    _loadingState.value = LoadingState.Analyzing(8, "Importing Video...", "")
+                    val fetchedTitle = fetchYoutubeTitle(rawUrl)
+                    if (fetchedTitle != null) {
+                        finalTitle = fetchedTitle
+                        finalDesc = "Automated ingest of YouTube video: $fetchedTitle"
+                    }
+                    
+                    _loadingState.value = LoadingState.Analyzing(18, "Transcribing Audio & Generating Subtitles...", "")
+                    val wordsList = fetchYoutubeTranscript(extractedId)
+                    if (wordsList != null && wordsList.isNotEmpty()) {
+                        fetchedWords = wordsList
+                        finalTranscript = wordsList.joinToString(" ") { it.word }
+                        finalDuration = (wordsList.last().endMs / 1000L).coerceAtLeast(120)
                         
-                        _loadingState.value = LoadingState.Analyzing(18, "Transcribing Audio & Generating Subtitles...", "")
-                        val wordsList = fetchYoutubeTranscript(extractedId)
-                        if (wordsList != null && wordsList.isNotEmpty()) {
-                            fetchedWords = wordsList
-                            finalTranscript = wordsList.joinToString(" ") { it.word }
-                            finalDuration = (wordsList.last().endMs / 1000L).coerceAtLeast(120)
-                            
-                            // Generate beautifully drifting camera focuses over speech intervals
-                            val trackTimeline = mutableMapOf<Int, Float>()
-                            for (sec in 0..finalDuration.toInt() step 5) {
-                                val shift = if (sec % 10 == 0) 0.47f else if (sec % 15 == 0) 0.53f else 0.50f
-                                trackTimeline[sec] = shift
-                            }
-                            dynamicTimeline = trackTimeline
-                        } else {
-                            // No real captions/transcript available for this video, and the cloud
-                            // backend (which would transcribe the actual audio) already failed above.
-                            // We deliberately do NOT fabricate a placeholder transcript here anymore:
-                            // doing so used to produce clips with made-up captions and timestamps that
-                            // had nothing to do with the real video content. Fail loudly instead.
-                            _loadingState.value = LoadingState.Error(
-                                "Couldn't get a real transcript for this video (no captions available, " +
-                                "and the cloud AI backend is unreachable). Please try again in a moment, " +
-                                "or use \"Upload Video\" to process the file directly on this device."
-                            )
-                            return@launch
+                        // Generate beautifully drifting camera focuses over speech intervals
+                        val trackTimeline = mutableMapOf<Int, Float>()
+                        for (sec in 0..finalDuration.toInt() step 5) {
+                            val shift = if (sec % 10 == 0) 0.47f else if (sec % 15 == 0) 0.53f else 0.50f
+                            trackTimeline[sec] = shift
                         }
+                        dynamicTimeline = trackTimeline
+                    } else {
+                        // No real captions/transcript available for this video, and the cloud
+                        // backend (which would transcribe the actual audio) already failed above.
+                        // We deliberately do NOT fabricate a placeholder transcript here anymore:
+                        // doing so used to produce clips with made-up captions and timestamps that
+                        // had nothing to do with the real video content. Fail loudly instead.
+                        _loadingState.value = LoadingState.Error(
+                            "Couldn't get a real transcript for this video (no captions available, " +
+                            "and the cloud AI backend is unreachable). Please try again in a moment, " +
+                            "or use \"Upload Video\" to process the file directly on this device."
+                        )
+                        return@launch
                     }
                 }
 
