@@ -59,11 +59,9 @@ def run_background_job(job_id: str, url: str, num_clips: int, base_url: str):
 )
 @modal.asgi_app()
 def fastapi_app():
-    import importlib.util
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    main_path = os.path.join(backend_dir, "main.py")
-    spec = importlib.util.spec_from_file_location("main_backend_module", main_path)
-    main_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(main_mod)
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, "/root/backend")
+    import main as main_mod
     main_mod.modal_background_job_fn = run_background_job
     return main_mod.app
