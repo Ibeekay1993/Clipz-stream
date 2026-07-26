@@ -504,14 +504,34 @@ Return ONLY a JSON object with key "clips". Each clip must have:
         logger.error(f"Groq Llama-3 70B analysis error: {e}")
         return []
 
-# ── Endpoints ─────────────────────────────────────────────────────────────
+# ── Persistent Job Tracking ────────────────────────────────────────────────
 JOBS = {}
+
+def push_job_update(job_id: str, progress: int, current_step: str, status: str = None, result: dict = None, error: str = None):
+    data = {
+        "job_id": job_id,
+        "progress": progress,
+        "current_step": current_step
+    }
+    if status: data["status"] = status
+    if result: data["result"] = result
+    if error: data["error"] = error
+
+    if job_id:
+        if job_id not in JOBS:
+            JOBS[job_id] = {"job_id": job_id, "status": "processing", "progress": 0, "current_step": "", "result": None, "error": None}
+        JOBS[job_id].update(data)
+
+    if supabase and job_id:
+        try:
+            supabase.table("jobs").upsert(data).execute()
+        except Exception as e:
+            logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
 
 async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None) -> dict:
     def update_job(prog: int, step: str):
-        if job_id and job_id in JOBS:
-            JOBS[job_id]["progress"] = prog
-            JOBS[job_id]["current_step"] = step
+        if job_id:
+            push_job_update(job_id, prog, step)
 
     update_job(10, "Extracting audio & Groq WhisperX transcription...")
     logger.info("Starting Groq Whisper AI Engine analysis...")
@@ -590,13 +610,10 @@ def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id))
-        JOBS[job_id]["status"] = "completed"
-        JOBS[job_id]["progress"] = 100
-        JOBS[job_id]["result"] = res
+        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
-        JOBS[job_id]["status"] = "failed"
-        JOBS[job_id]["error"] = str(e)
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
 @app.post("/api/process")
 async def process_video_api(body: ProcessRequest, request: Request):
@@ -614,27 +631,39 @@ async def create_job_api(body: ProcessRequest, request: Request):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/")
     job_id = uuid.uuid4().hex[:12]
-    JOBS[job_id] = {
-        "job_id": job_id, "status": "processing", "progress": 2, 
-        "current_step": "Ingesting video & validating media streams...", "result": None, "error": None
-    }
+    
+    push_job_update(
+        job_id=job_id,
+        progress=2,
+        current_step="Ingesting video & validating media streams...",
+        status="processing"
+    )
     
     def worker():
         try:
             vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
             execute_job_bg(job_id, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
         except Exception as e:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(e)
+            logger.error(f"Job {job_id} ingestion failed: {e}")
+            push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
     threading.Thread(target=worker, daemon=True).start()
     return {"job_id": job_id, "status": "processing"}
 
 @app.get("/api/jobs/status/{job_id}")
 async def get_job_status(job_id: str):
-    if job_id not in JOBS:
-        raise HTTPException(404, "Job not found")
-    return JOBS[job_id]
+    if supabase:
+        try:
+            res = supabase.table("jobs").select("*").eq("job_id", job_id).execute()
+            if res.data and len(res.data) > 0:
+                return res.data[0]
+        except Exception as e:
+            logger.warning(f"Failed to fetch job status from Supabase DB ({job_id}): {e}")
+
+    if job_id in JOBS:
+        return JOBS[job_id]
+
+    raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
 async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
