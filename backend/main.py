@@ -506,6 +506,7 @@ Return ONLY a JSON object with key "clips". Each clip must have:
 
 # ── Persistent Job Tracking ────────────────────────────────────────────────
 JOBS = {}
+modal_background_job_fn = None
 
 def push_job_update(job_id: str, progress: int, current_step: str, status: str = None, result: dict = None, error: str = None):
     data = {
@@ -522,11 +523,14 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
             JOBS[job_id] = {"job_id": job_id, "status": "processing", "progress": 0, "current_step": "", "result": None, "error": None}
         JOBS[job_id].update(data)
 
-    if supabase and job_id:
-        try:
-            supabase.table("jobs").upsert(data).execute()
-        except Exception as e:
-            logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
+    def _async_db_write():
+        if supabase and job_id:
+            try:
+                supabase.table("jobs").upsert(data).execute()
+            except Exception as e:
+                logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
+
+    threading.Thread(target=_async_db_write, daemon=True).start()
 
 async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None) -> dict:
     def update_job(prog: int, step: str):
@@ -639,15 +643,21 @@ async def create_job_api(body: ProcessRequest, request: Request):
         status="processing"
     )
     
-    def worker():
-        try:
-            vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
-            execute_job_bg(job_id, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
-        except Exception as e:
-            logger.error(f"Job {job_id} ingestion failed: {e}")
-            push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+    num_c = max(1, min(body.num_clips, 8))
+    if modal_background_job_fn is not None:
+        logger.info(f"Spawning native Modal background container for job {job_id}")
+        modal_background_job_fn.spawn(job_id, body.url.strip(), num_c, base)
+    else:
+        def worker():
+            try:
+                vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
+                execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
+            except Exception as e:
+                logger.error(f"Job {job_id} ingestion failed: {e}")
+                push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True).start()
+        
     return {"job_id": job_id, "status": "processing"}
 
 @app.get("/api/jobs/status/{job_id}")
