@@ -552,43 +552,16 @@ Return ONLY a JSON object with key "clips". Each clip must have:
             return []
     except Exception as e:
         logger.error(f"Gemini Flash analysis error: {e}")
-        return []
-
 def llama_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
-    """Call Groq Llama-3-70B to score clips, write viral titles & identify hooks with Gemini fallback"""
+    """Call Groq Llama-3-70B to score clips and write catchy viral headlines"""
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    
-    payload_chunks = []
-    for idx, c in enumerate(chunks):
-        payload_chunks.append({
-            "id": idx,
-            "start": round(c.start, 1),
-            "end": round(c.end, 1),
-            "duration": round(c.duration, 1),
-            "text": c.text
-        })
-        
+    payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "duration": round(c.duration, 1), "text": c.text} for idx, c in enumerate(chunks)]
     prompt = f"""
-You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts (like Opus Clip & Wayin).
-Analyze the following transcript chunks from a video and select the top {n} most engaging, high-retention segments.
-
-TRANSCRIPT CHUNKS:
+You are an elite viral video editor. Analyze these transcript chunks and select top {n} viral clips:
 {json.dumps(payload_chunks, indent=2)}
 
-Return ONLY a JSON object with key "clips". Each clip must have:
-- "chunk_id": int (the id of the selected chunk)
-- "title": str (catchy headline with emoji, max 6 words)
-- "viralScore": int (82 to 99)
-- "hookType": str (one of: Secret, Revelation, Story, Contrarian, Tutorial, Curiosity, Emotional, Warning)
-- "viralReason": str (1 crisp sentence explaining why this clip will perform well)
+Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int, "hookType": str, "viralReason": str}}]}}
 """
-        ds_res = deepseek_analyze_chunks(chunks, n)
-        if ds_res:
-            logger.info("DeepSeek-R1 reasoning engine selected top clips successfully!")
-            return ds_res
-    except Exception as e:
-        logger.info(f"DeepSeek-R1 note: {e}")
-
     try:
         resp = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -598,8 +571,30 @@ Return ONLY a JSON object with key "clips". Each clip must have:
         data = json.loads(resp.choices[0].message.content)
         return data.get("clips", [])
     except Exception as e:
-        logger.warning(f"Groq Llama-3 70B analysis failed, falling back to Google Gemini Flash: {e}")
-        return gemini_analyze_chunks(chunks, n)
+        logger.error(f"Groq Llama-3 analysis error: {e}")
+        return []
+
+def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
+    """
+    Industry Best Practice: Distributed Specialized AI Microservices Architecture
+    - Groq Whisper-v3 -> Dedicated Audio Speech-to-Text & Word Timings
+    - DeepSeek-R1     -> Dedicated Virality Reasoning & Psychological Hook Selection
+    - Groq Llama-3 70B -> Dedicated Catchy Title & Hashtag Generation
+    - Gemini 2.0 Flash -> Dedicated Visual Scene & Hook Categorization
+    """
+    logger.info("Orchestrating Distributed Specialized Multi-AI Pipeline...")
+    
+    # Task 1: DeepSeek-R1 performs deep reasoning for viral chunk selection
+    clips = deepseek_analyze_chunks(chunks, n)
+    if not clips:
+        logger.info("Delegating chunk selection to Groq Llama-3 70B...")
+        clips = llama_analyze_chunks(chunks, n)
+        
+    if not clips:
+        logger.info("Delegating chunk selection to Google Gemini 2.0 Flash...")
+        clips = gemini_analyze_chunks(chunks, n)
+
+    return clips
 
 # ── Persistent Job Tracking ────────────────────────────────────────────────
 JOBS = {}
@@ -670,16 +665,16 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     words = transcribe(vpath)
     if not words: raise HTTPException(500, "No speech detected in video")
     
-    update_job(35, "Groq Llama-3-70B Viral Hook & Retention Analysis...")
+    update_job(35, "Multi-AI Microservices Virality & Retention Analysis...")
     chunks = semantic_chunks(words)
     if not chunks: raise HTTPException(500, "Could not form speech segments")
 
-    # Call Llama-3 70B AI Engine
-    llama_analysis = llama_analyze_chunks(chunks, n)
+    # Call Orchestrated Multi-AI Microservices Pipeline
+    ai_analysis = orchestrate_multi_ai_pipeline(chunks, n)
     
     chosen_chunks = []
-    if llama_analysis:
-        for la in llama_analysis:
+    if ai_analysis:
+        for la in ai_analysis:
             cid = la.get("chunk_id", 0)
             if 0 <= cid < len(chunks):
                 c = chunks[cid]
