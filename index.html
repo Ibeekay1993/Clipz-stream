@@ -189,6 +189,22 @@
         </div>
     </div>
 
+    <!-- Mobile App Bottom Navigation Bar (Matches Android Jetpack Compose UI) -->
+    <nav class="mobile-bottom-nav">
+        <button class="mobile-nav-item active" id="mobile-nav-import" onclick="switchMobileTab('import')">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <span>Import</span>
+        </button>
+        <button class="mobile-nav-item" id="mobile-nav-presets" onclick="switchMobileTab('presets')">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+            <span>Presets</span>
+        </button>
+        <button class="mobile-nav-item" id="mobile-nav-history" onclick="switchMobileTab('history')">
+            <i class="fa-solid fa-film"></i>
+            <span>Clips</span>
+        </button>
+    </nav>
+
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-container">

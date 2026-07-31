@@ -18,6 +18,26 @@ function selectAspectRatio(btn, ratioName) {
     currentAspectRatio = ratioName;
 }
 
+function switchMobileTab(tabName) {
+    document.querySelectorAll('.mobile-nav-item').forEach(btn => btn.classList.remove('active'));
+    
+    if (tabName === 'import') {
+        const item = document.getElementById('mobile-nav-import');
+        if (item) item.classList.add('active');
+        document.getElementById('clipper').scrollIntoView({ behavior: 'smooth' });
+    } else if (tabName === 'presets') {
+        const item = document.getElementById('mobile-nav-presets');
+        if (item) item.classList.add('active');
+        const grid = document.querySelector('.preset-controls-grid');
+        if (grid) grid.scrollIntoView({ behavior: 'smooth' });
+    } else if (tabName === 'history') {
+        const item = document.getElementById('mobile-nav-history');
+        if (item) item.classList.add('active');
+        const res = document.getElementById('results-section');
+        if (res) res.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
 // Tab Switching
 function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
