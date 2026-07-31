@@ -55,12 +55,26 @@
                     <form id="youtube-form" onsubmit="handleYoutubeSubmit(event)">
                         <div class="input-group">
                             <i class="fa-solid fa-link input-icon"></i>
-                            <input type="url" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" required>
+                            <input type="url" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" required oninput="onUrlInputChange(event)">
                             <button type="submit" class="btn-primary" id="yt-submit-btn">
                                 <span>Generate Viral Clips</span> <i class="fa-solid fa-wand-magic-sparkles"></i>
                             </button>
                         </div>
                     </form>
+                    
+                    <!-- Wayin/OpusClip Step 1 Ingest Preview Card -->
+                    <div class="video-ingest-card" id="video-ingest-card" style="display: none;">
+                        <div class="video-thumb-container">
+                            <img id="video-preview-thumb" src="" alt="Video Thumbnail">
+                            <div class="video-duration-badge" id="video-preview-duration"><i class="fa-brands fa-youtube text-red"></i> Verified</div>
+                        </div>
+                        <div class="video-preview-details">
+                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1: Video Ready</span>
+                            <h3 id="video-preview-title" class="video-preview-title">Video Title</h3>
+                            <p id="video-preview-author" class="video-preview-author">Channel</p>
+                        </div>
+                    </div>
+
                     <div class="sample-links">
                         <span>Try example link:</span>
                         <button type="button" class="sample-chip" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">

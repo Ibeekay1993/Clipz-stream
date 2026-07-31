@@ -670,6 +670,76 @@ body {
     object-fit: contain;
 }
 
+/* Wayin / OpusClip Ingest Preview Card */
+.video-ingest-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface-slate);
+    border: 1px solid rgba(0, 255, 135, 0.25);
+    border-radius: 16px;
+    padding: 12px;
+    margin-top: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.video-thumb-container {
+    position: relative;
+    width: 120px;
+    height: 70px;
+    border-radius: 10px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: #000;
+}
+
+.video-thumb-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.video-duration-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #FFF;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.video-preview-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.video-status-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--primary-neon);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.video-preview-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #FFF;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.video-preview-author {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
 /* Commercial Style Customization Grid */
 .preset-controls-grid {
     display: grid;

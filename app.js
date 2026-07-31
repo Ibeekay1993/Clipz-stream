@@ -52,8 +52,47 @@ function switchTab(tabName) {
     }
 }
 
+function extractYoutubeId(url) {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+}
+
+async function onUrlInputChange(event) {
+    const url = typeof event === 'string' ? event : event.target.value.trim();
+    const ytId = extractYoutubeId(url);
+    const card = document.getElementById('video-ingest-card');
+
+    if (!ytId) {
+        if (card) card.style.display = 'none';
+        return;
+    }
+
+    try {
+        const thumbUrl = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+        document.getElementById('video-preview-thumb').src = thumbUrl;
+
+        // Fetch oEmbed Title & Author
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytId}&format=json`;
+        const resp = await fetch(oembedUrl);
+        if (resp.ok) {
+            const data = await resp.json();
+            document.getElementById('video-preview-title').innerText = data.title || "YouTube Video";
+            document.getElementById('video-preview-author').innerText = `Channel • ${data.author_name || "Verified"}`;
+        } else {
+            document.getElementById('video-preview-title').innerText = "YouTube Video Ready";
+            document.getElementById('video-preview-author').innerText = "Verified Media Stream";
+        }
+
+        if (card) card.style.display = 'flex';
+    } catch (err) {
+        if (card) card.style.display = 'flex';
+    }
+}
+
 function fillSample(url) {
     document.getElementById('yt-url-input').value = url;
+    onUrlInputChange(url);
 }
 
 // File Dropzone Handling
