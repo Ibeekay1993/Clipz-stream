@@ -301,7 +301,7 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     return sel
 
 def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str):
-    """Generates an ASS subtitle file with kinetic word highlighting and bold stroke outline"""
+    """Generates an ASS subtitle file with OpusClip-style active word highlighting, pop animation, and heavy stroke outline"""
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 720
@@ -309,35 +309,45 @@ PlayResY: 1280
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,36,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,20,20,160,1
+Style: Default,Arial,46,&H0000FFFF,&H0000FF00,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,5,2,2,20,20,220,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines_events = []
-    group = []
     clip_words = [w for w in words if (w.get("startMs", 0)/1000.0) >= clip_start_sec - 0.5]
     
-    for i, w in enumerate(clip_words):
-        group.append(w)
-        if len(group) >= 4 or i == len(clip_words) - 1:
-            line_start_sec = max(0, (group[0]["startMs"] / 1000.0) - clip_start_sec)
-            line_end_sec = max(line_start_sec + 0.4, (group[-1]["endMs"] / 1000.0) - clip_start_sec)
+    def format_time(sec):
+        sec = max(0.0, sec)
+        hrs = int(sec // 3600)
+        mins = int((sec % 3600) // 60)
+        secs = int(sec % 60)
+        cs = int((sec % 1) * 100)
+        return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
+
+    chunk_size = 3
+    for i in range(0, len(clip_words), chunk_size):
+        group = clip_words[i:i + chunk_size]
+        if not group: continue
+        
+        for idx, active_w in enumerate(group):
+            w_start = max(0.0, (active_w["startMs"] / 1000.0) - clip_start_sec)
+            w_end = max(w_start + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec)
             
-            def format_time(sec):
-                hrs = int(sec // 3600)
-                mins = int((sec % 3600) // 60)
-                secs = int(sec % 60)
-                cs = int((sec % 1) * 100)
-                return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
+            formatted_words = []
+            for j, w in enumerate(group):
+                word_str = str(w.get("word", "")).upper()
+                if j == idx:
+                    formatted_words.append(f"{{\\c&H0000FF00&\\fscx115\\fscy115}}{word_str}{{\\r}}")
+                else:
+                    formatted_words.append(f"{{\\c&H0000FFFF&}}{word_str}")
             
-            start_str = format_time(line_start_sec)
-            end_str = format_time(line_end_sec)
-            line_text = " ".join(str(w.get("word", "")).upper() for w in group)
-            event_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\c&H0000FFFF&}}{line_text}"
+            line_text = " ".join(formatted_words)
+            start_str = format_time(w_start)
+            end_str = format_time(w_end)
+            event_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{line_text}"
             lines_events.append(event_line)
-            group = []
-            
+
     with open(ass_out_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(lines_events))
 
