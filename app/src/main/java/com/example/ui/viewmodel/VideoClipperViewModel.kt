@@ -323,53 +323,42 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             var isBackendSuccess = false
             var backendClipsList: List<Clip>? = null
 
-            // Connect directly to our Modal serverless GPU backend
-            if (rawUrl.startsWith("http") || finalSourceUrl != rawUrl) {
+            // Connect to Modal cloud backend for YouTube URLs, or run 100% On-Device for local gallery videos
+            if (rawUrl.startsWith("http")) {
                 _loadingState.value = LoadingState.Analyzing(15, "Initializing Cloud AI Processing...", "")
                 try {
                     val backendResponse = withContext(Dispatchers.IO) {
-                        if (finalSourceUrl != rawUrl && !finalSourceUrl.startsWith("http")) {
-                            // Local file upload via Multipart
-                            val file = java.io.File(finalSourceUrl)
-                            val requestFile = file.asRequestBody("video/*".toMediaType())
-                            val body = okhttp3.MultipartBody.Part.createFormData("file", file.name, requestFile)
-                            val numClipsPart = numClips.toString().toRequestBody("text/plain".toMediaType())
-                            BackendApiClient.service.uploadVideo(body, numClipsPart)
-                        } else {
-                            // High-performance async job polling pipeline (OpusClip / Klap style)
-                            _loadingState.value = LoadingState.Analyzing(5, "Connecting to Cloud AI Engine...", "")
-                            val createResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
-                            val jobId = createResp.job_id
+                        _loadingState.value = LoadingState.Analyzing(5, "Connecting to Cloud AI Engine...", "")
+                        val createResp = BackendApiClient.service.createJob(BackendProcessRequest(url = rawUrl, num_clips = numClips))
+                        val jobId = createResp.job_id
+                        
+                        var jobResult: com.example.network.BackendProcessResponse? = null
+                        val pollStartTime = System.currentTimeMillis()
+                        
+                        while (isActive) {
+                            delay(1500)
+                            val statusResp = BackendApiClient.service.getJobStatus(jobId)
+                            val currentStepMsg = statusResp.current_step ?: "Cloud GPU AI Processing..."
+                            val progVal = statusResp.progress.coerceAtLeast(5)
                             
-                            var jobResult: com.example.network.BackendProcessResponse? = null
-                            val pollStartTime = System.currentTimeMillis()
+                            _loadingState.value = LoadingState.Analyzing(progVal, currentStepMsg, "")
                             
-                            while (isActive) {
-                                delay(1500)
-                                val statusResp = BackendApiClient.service.getJobStatus(jobId)
-                                val currentStepMsg = statusResp.current_step ?: "Cloud GPU AI Processing..."
-                                val progVal = statusResp.progress.coerceAtLeast(5)
-                                
-                                _loadingState.value = LoadingState.Analyzing(progVal, currentStepMsg, "")
-                                
-                                if (statusResp.status == "completed") {
-                                    jobResult = statusResp.result
-                                    break
-                                } else if (statusResp.status == "failed") {
-                                    throw Exception(statusResp.error ?: "Cloud AI processing failed")
-                                }
-                                
-                                // 10-minute timeout safeguard
-                                if (System.currentTimeMillis() - pollStartTime > 600_000L) {
-                                    throw Exception("Job processing timed out after 10 minutes")
-                                }
+                            if (statusResp.status == "completed") {
+                                jobResult = statusResp.result
+                                break
+                            } else if (statusResp.status == "failed") {
+                                throw Exception(statusResp.error ?: "Cloud AI processing failed")
                             }
                             
-                            if (jobResult == null) {
-                                throw Exception("Cloud processing produced no output result")
+                            if (System.currentTimeMillis() - pollStartTime > 600_000L) {
+                                throw Exception("Job processing timed out after 10 minutes")
                             }
-                            jobResult
                         }
+                        
+                        if (jobResult == null) {
+                            throw Exception("Cloud processing produced no output result")
+                        }
+                        jobResult
                     }
                     _loadingState.value = LoadingState.Analyzing(90, "Finalizing Clips...", "")
                     
@@ -386,35 +375,34 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
                         }
                         
                         backendClipsList = backendResponse.clips.map { c ->
-                        val clipUrlRaw = c.clipUrl
-                        val resolvedUrl = if (clipUrlRaw != null) {
-                            if (clipUrlRaw.startsWith("/")) {
-                                "${BackendApiClient.getBaseUrl().removeSuffix("/")}$clipUrlRaw"
-                            } else if (clipUrlRaw.startsWith("http")) {
-                                clipUrlRaw
+                            val clipUrlRaw = c.clipUrl
+                            val resolvedUrl = if (clipUrlRaw != null) {
+                                if (clipUrlRaw.startsWith("/")) {
+                                    "${BackendApiClient.getBaseUrl().removeSuffix("/")}$clipUrlRaw"
+                                } else if (clipUrlRaw.startsWith("http")) {
+                                    clipUrlRaw
+                                } else {
+                                    null
+                                }
                             } else {
                                 null
                             }
-                        } else {
-                            null
+                            Clip(
+                                projectId = 0,
+                                title = c.title,
+                                startSec = c.startSec,
+                                endSec = c.endSec,
+                                viralScore = c.viralScore,
+                                viralReason = c.viralReason,
+                                captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList()),
+                                isExported = resolvedUrl != null,
+                                exportedFilePath = resolvedUrl
+                            )
                         }
-                        Clip(
-                            projectId = 0, // Assigned below on database write
-                            title = c.title,
-                            startSec = c.startSec,
-                            endSec = c.endSec,
-                            viralScore = c.viralScore,
-                            viralReason = c.viralReason,
-                            captionsJson = wordListAdapter.toJson(c.captions?.map { WordTimestamp(it.word, it.startMs, it.endMs) } ?: emptyList()),
-                            isExported = resolvedUrl != null,
-                            exportedFilePath = resolvedUrl
-                        )
+                        isBackendSuccess = true
                     }
-                    isBackendSuccess = true
-                }
                 } catch (e: Exception) {
                     Log.e("BackendApiClient", "Modal processing error: ${e.message}", e)
-                    // On-Device Fallback for YouTube URLs when cloud datacenter is blocked
                     val ytId = extractYoutubeId(rawUrl)
                     if (ytId != null && finalSourceUrl == rawUrl) {
                         try {

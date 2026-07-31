@@ -112,29 +112,32 @@ def download_video_ingest(url: str, out_dir: str) -> str:
     # Client fallback order tuned for current YouTube bot-checks:
     # - tv_embedded & android bypass YouTube captcha challenges on datacenter IPs
     clients_attempts = [
-        ['android_vr'],
-        ['web'],
-        ['ios'],
+        ['tv_embedded'],
+        ['web_embedded'],
+        ['android_embedded'],
+        ['mweb'],
+        ['android'],
     ]
 
     last_error = None
     bot_check_hit = False
 
     for attempt, client_list in enumerate(clients_attempts):
+        yt_args = {'po_token': [po_token]} if po_token else {}
+        if client_list:
+            yt_args['player_client'] = client_list
+
         ydl_opts = {
-            'format': 'best[height<=720][ext=mp4]/best[height<=720]/best',
+            'format': 'b/best',
             'merge_output_format': 'mp4',
             'final_ext': 'mp4',
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
-            'retries': 1,
-            'socket_timeout': 6,
+            'retries': 2,
+            'socket_timeout': 10,
             'extractor_args': {
-                'youtube': {
-                    'player_client': client_list,
-                    **({'po_token': [po_token]} if po_token else {}),
-                }
+                'youtube': yt_args
             },
         }
         if cookiefile:
@@ -523,14 +526,11 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
             JOBS[job_id] = {"job_id": job_id, "status": "processing", "progress": 0, "current_step": "", "result": None, "error": None}
         JOBS[job_id].update(data)
 
-    def _async_db_write():
-        if supabase and job_id:
-            try:
-                supabase.table("jobs").upsert(data).execute()
-            except Exception as e:
-                logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
-
-    threading.Thread(target=_async_db_write, daemon=True).start()
+    if supabase and job_id:
+        try:
+            supabase.table("jobs").upsert(data).execute()
+        except Exception as e:
+            logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
 
 async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None) -> dict:
     def update_job(prog: int, step: str):
