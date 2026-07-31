@@ -487,8 +487,50 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     else:
         return f"/clips/{os.path.basename(out)}"
 
+def gemini_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
+    """Fallback Multi-Modal Virality Analysis via Google Gemini 2.0 / 2.5 Flash API"""
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        return []
+        
+    payload_chunks = []
+    for idx, c in enumerate(chunks):
+        payload_chunks.append({
+            "id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "duration": round(c.duration, 1), "text": c.text
+        })
+        
+    prompt = f"""
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts.
+Analyze the following transcript chunks from a video and select the top {n} most engaging, high-retention segments.
+
+TRANSCRIPT CHUNKS:
+{json.dumps(payload_chunks, indent=2)}
+
+Return ONLY a JSON object with key "clips". Each clip must have:
+- "chunk_id": int (the id of the selected chunk)
+- "title": str (catchy headline with emoji, max 6 words)
+- "viralScore": int (82 to 99)
+- "hookType": str (one of: Secret, Revelation, Story, Contrarian, Tutorial, Curiosity, Emotional, Warning)
+- "viralReason": str (1 crisp sentence explaining why this clip will perform well)
+"""
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+        headers = {"Content-Type": "application/json"}
+        data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
+        resp = requests.post(url, headers=headers, json=data, timeout=12)
+        if resp.status_code == 200:
+            text_out = resp.json()['candidates'][0]['content']['parts'][0]['text']
+            parsed = json.loads(text_out)
+            return parsed.get("clips", [])
+        else:
+            logger.warning(f"Gemini Flash analysis status {resp.status_code}: {resp.text}")
+            return []
+    except Exception as e:
+        logger.error(f"Gemini Flash analysis error: {e}")
+        return []
+
 def llama_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
-    """Call Groq Llama-3-70B to score clips, write viral titles & identify hooks"""
+    """Call Groq Llama-3-70B to score clips, write viral titles & identify hooks with Gemini fallback"""
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     
     payload_chunks = []
@@ -524,8 +566,8 @@ Return ONLY a JSON object with key "clips". Each clip must have:
         data = json.loads(resp.choices[0].message.content)
         return data.get("clips", [])
     except Exception as e:
-        logger.error(f"Groq Llama-3 70B analysis error: {e}")
-        return []
+        logger.warning(f"Groq Llama-3 70B analysis failed, falling back to Google Gemini Flash: {e}")
+        return gemini_analyze_chunks(chunks, n)
 
 # ── Persistent Job Tracking ────────────────────────────────────────────────
 JOBS = {}
