@@ -7,7 +7,7 @@ import threading
 import logging
 import yt_dlp
 
-from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -103,20 +103,29 @@ def _cookiefile_path():
     return None
 
 
-def download_video_ingest(url: str, out_dir: str) -> str:
+def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
     cookiefile = _cookiefile_path()
-    proxy = os.getenv("YTDLP_PROXY")  # e.g. residential/rotating proxy URL, optional but strongly recommended
-    po_token = os.getenv("YTDLP_PO_TOKEN")  # optional, see README for how to mint one
+    proxy = os.getenv("YTDLP_PROXY")
+    po_token = os.getenv("YTDLP_PO_TOKEN")
 
-    # Client fallback order tuned for current YouTube bot-checks:
-    # - tv_embedded & android bypass YouTube captcha challenges on datacenter IPs
+    def _yt_progress_hook(d):
+        if d.get("status") == "downloading" and job_id:
+            total_b = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded_b = d.get("downloaded_bytes") or 0
+            if total_b > 0:
+                pct = int((downloaded_b / total_b) * 100)
+                mapped_p = 2 + int(pct * 0.28) # Maps 0-100% download to 2%-30% progress bar
+                dl_mb = round(downloaded_b / (1024 * 1024), 1)
+                tot_mb = round(total_b / (1024 * 1024), 1)
+                push_job_update(job_id, progress=mapped_p, current_step=f"Downloading source video ({dl_mb}MB / {tot_mb}MB - {pct}%)...")
+
     clients_attempts = [
+        ['android_embedded'],
+        ['android'],
         ['tv_embedded'],
         ['web_embedded'],
-        ['android_embedded'],
         ['mweb'],
-        ['android'],
     ]
 
     last_error = None
@@ -136,6 +145,7 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             'no_warnings': True,
             'retries': 0,
             'socket_timeout': 5,
+            'progress_hooks': [_yt_progress_hook],
             'extractor_args': {
                 'youtube': yt_args
             },
@@ -520,8 +530,41 @@ Return ONLY a JSON object with key "clips". Each clip must have:
 # ── Persistent Job Tracking ────────────────────────────────────────────────
 JOBS = {}
 modal_background_job_fn = None
+modal_volume = None
+
+STORAGE_DIR = "/root/storage" if os.path.exists("/root/storage") or os.access("/root", os.W_OK) else tempfile.gettempdir()
+JOBS_FILE = os.path.join(STORAGE_DIR, "jobs_state.json")
+
+def _save_jobs_to_disk():
+    try:
+        os.makedirs(STORAGE_DIR, exist_ok=True)
+        with open(JOBS_FILE, "w", encoding="utf-8") as f:
+            json.dump(JOBS, f)
+        if modal_volume:
+            try:
+                modal_volume.commit()
+            except Exception as ve:
+                logger.warning(f"Modal volume commit note: {ve}")
+    except Exception as e:
+        logger.warning(f"Could not persist jobs to disk: {e}")
+
+def _load_jobs_from_disk():
+    global JOBS
+    if modal_volume:
+        try:
+            modal_volume.reload()
+        except Exception as ve:
+            pass
+    if os.path.exists(JOBS_FILE):
+        try:
+            with open(JOBS_FILE, "r", encoding="utf-8") as f:
+                disk_jobs = json.load(f)
+                JOBS.update(disk_jobs)
+        except Exception as e:
+            logger.warning(f"Could not load jobs from disk: {e}")
 
 def push_job_update(job_id: str, progress: int, current_step: str, status: str = None, result: dict = None, error: str = None):
+    _load_jobs_from_disk()
     data = {
         "job_id": job_id,
         "progress": progress,
@@ -535,6 +578,7 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
         if job_id not in JOBS:
             JOBS[job_id] = {"job_id": job_id, "status": "processing", "progress": 0, "current_step": "", "result": None, "error": None}
         JOBS[job_id].update(data)
+        _save_jobs_to_disk()
 
     if supabase and job_id:
         try:
@@ -641,9 +685,9 @@ async def process_video_api(body: ProcessRequest, request: Request):
         raise HTTPException(500, str(e))
 
 @app.post("/api/jobs/create")
-async def create_job_api(body: ProcessRequest, request: Request):
+async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks, request: Request = None):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
-    base = str(request.base_url).rstrip("/")
+    base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
     job_id = uuid.uuid4().hex[:12]
     
     push_job_update(
@@ -654,24 +698,24 @@ async def create_job_api(body: ProcessRequest, request: Request):
     )
     
     num_c = max(1, min(body.num_clips, 8))
-    if modal_background_job_fn is not None:
-        logger.info(f"Spawning native Modal background container for job {job_id}")
-        modal_background_job_fn.spawn(job_id, body.url.strip(), num_c, base)
-    else:
-        def worker():
-            try:
-                vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
-                execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
-            except Exception as e:
-                logger.error(f"Job {job_id} ingestion failed: {e}")
-                push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+    
+    def async_job_worker():
+        try:
+            vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR, job_id)
+            execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
+        except Exception as e:
+            logger.error(f"Job {job_id} processing failed: {e}")
+            push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
-        threading.Thread(target=worker, daemon=True).start()
-        
+    background_tasks.add_task(async_job_worker)
     return {"job_id": job_id, "status": "processing"}
 
 @app.get("/api/jobs/status/{job_id}")
 async def get_job_status(job_id: str):
+    _load_jobs_from_disk()
+    if job_id in JOBS:
+        return JOBS[job_id]
+
     if supabase:
         try:
             res = supabase.table("jobs").select("*").eq("job_id", job_id).execute()
@@ -679,9 +723,6 @@ async def get_job_status(job_id: str):
                 return res.data[0]
         except Exception as e:
             logger.warning(f"Failed to fetch job status from Supabase DB ({job_id}): {e}")
-
-    if job_id in JOBS:
-        return JOBS[job_id]
 
     raise HTTPException(404, "Job not found")
 
