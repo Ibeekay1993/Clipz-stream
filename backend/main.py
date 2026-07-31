@@ -134,8 +134,8 @@ def download_video_ingest(url: str, out_dir: str) -> str:
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
-            'retries': 2,
-            'socket_timeout': 10,
+            'retries': 0,
+            'socket_timeout': 5,
             'extractor_args': {
                 'youtube': yt_args
             },
