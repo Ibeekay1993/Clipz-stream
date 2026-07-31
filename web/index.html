@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clipz-Stream AI — Turn Long Videos into Viral Shorts & Reels</title>
+    <meta name="description" content="AI-powered video clipper that turns YouTube videos and MP4 uploads into viral 9:16 vertical TikTok, Reels, and Shorts clips with auto-captions and face tracking.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- FontAwesome for sleek icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Top Notification Banner for Testers -->
+    <div class="top-banner">
+        <div class="banner-content">
+            <span class="badge-new">NEW UPDATE</span>
+            <span>📱 Android App Available for Testers!</span>
+            <a href="https://github.com/Ibeekay1993/Clipz-stream/raw/main/app/build/outputs/apk/debug/app-debug.apk" class="btn-download-apk" target="_blank" download>
+                <i class="fa-solid fa-download"></i> Download Android APK
+            </a>
+        </div>
+    </div>
+
+    <!-- Header Navigation -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
+                <span class="logo-text">Clipz<span class="highlight">Stream</span></span>
+                <span class="badge-gpu"><i class="fa-solid fa-microchip"></i> T4 GPU Powered</span>
+            </div>
+            <nav class="nav-links">
+                <a href="#clipper"><i class="fa-solid fa-scissors"></i> Clipper</a>
+                <a href="https://github.com/Ibeekay1993/Clipz-stream" target="_blank"><i class="fa-brands fa-github"></i> GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero & Main Clipper Section -->
+    <main class="hero-section" id="clipper">
+        <div class="hero-container">
+            <div class="hero-header">
+                <h1 class="hero-title">Turn Long Videos into <span class="gradient-text">Viral Short Clips</span> in Seconds</h1>
+                <p class="hero-subtitle">Powered by WhisperX Speech AI, Groq Llama-3 Virality Scoring, and Auto 9:16 Face Panning.</p>
+            </div>
+
+            <!-- Input Tabs -->
+            <div class="clipper-card">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" id="tab-youtube-btn" onclick="switchTab('youtube')">
+                        <i class="fa-brands fa-youtube text-red"></i> YouTube Link
+                    </button>
+                    <button class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">
+                        <i class="fa-solid fa-cloud-arrow-up text-neon"></i> Upload MP4 File
+                    </button>
+                </div>
+
+                <!-- YouTube Input Panel -->
+                <div class="tab-panel active" id="panel-youtube">
+                    <form id="youtube-form" onsubmit="handleYoutubeSubmit(event)">
+                        <div class="input-group">
+                            <i class="fa-solid fa-link input-icon"></i>
+                            <input type="url" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" required>
+                            <button type="submit" class="btn-primary" id="yt-submit-btn">
+                                <span>Generate Clips</span> <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            </button>
+                        </div>
+                    </form>
+                    <div class="sample-links">
+                        <span>Try example:</span>
+                        <button type="button" class="sample-chip" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
+                            🤖 Lex Fridman AI Podcast
+                        </button>
+                    </div>
+                </div>
+
+                <!-- File Upload Panel -->
+                <div class="tab-panel" id="panel-file">
+                    <div class="dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
+                        <input type="file" id="file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;" onchange="handleFileSelect(event)">
+                        <div class="dropzone-content">
+                            <div class="dropzone-icon"><i class="fa-solid fa-film"></i></div>
+                            <h3 id="dropzone-title">Drag & Drop your video file here</h3>
+                            <p id="dropzone-subtitle">Supports MP4, MKV, or WEBM up to 500MB</p>
+                            <button type="button" class="btn-secondary" id="dropzone-browse-btn">Browse Video File</button>
+                        </div>
+                    </div>
+                    <div class="file-action" id="file-action-container" style="display: none;">
+                        <button type="button" class="btn-primary full-width" onclick="handleFileUploadSubmit()">
+                            <span>Upload & Generate Clips</span> <i class="fa-solid fa-bolt"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Number of Clips Slider -->
+                <div class="options-row">
+                    <label for="clips-count">Target Clips Count: <span id="clips-count-val">3</span> Clips</label>
+                    <input type="range" id="clips-count" min="1" max="6" value="3" oninput="document.getElementById('clips-count-val').innerText = this.value">
+                </div>
+            </div>
+
+            <!-- Progress Monitor Overlay -->
+            <div class="progress-card" id="progress-card" style="display: none;">
+                <div class="progress-header">
+                    <div class="spinner"><i class="fa-solid fa-circle-notch fa-spin"></i></div>
+                    <div class="progress-info">
+                        <h3 id="progress-title">Connecting to Cloud AI Engine...</h3>
+                        <p id="progress-step">Initializing GPU worker container...</p>
+                    </div>
+                    <span class="progress-pct" id="progress-pct">5%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progress-bar-fill" style="width: 5%;"></div>
+                </div>
+            </div>
+
+            <!-- Error Monitor Overlay -->
+            <div class="error-card" id="error-card" style="display: none;">
+                <i class="fa-solid fa-triangle-exclamation error-icon"></i>
+                <div class="error-info">
+                    <h3>Processing Issue Encountered</h3>
+                    <p id="error-message">Unable to process video.</p>
+                </div>
+                <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Results Gallery Section -->
+            <section class="results-section" id="results-section" style="display: none;">
+                <div class="results-header">
+                    <h2><i class="fa-solid fa-fire text-neon"></i> Your Generated Clips</h2>
+                    <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
+                </div>
+                <div class="clips-grid" id="clips-grid">
+                    <!-- Clip cards dynamically rendered here -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Video Modal Preview -->
+    <div class="modal-overlay" id="video-modal" onclick="closeVideoModal(event)">
+        <div class="modal-card">
+            <button class="modal-close" onclick="closeVideoModalForce()"><i class="fa-solid fa-xmark"></i></button>
+            <div class="video-container">
+                <video id="modal-video-player" controls autoplay loop></video>
+            </div>
+            <div class="modal-details">
+                <h3 id="modal-clip-title">Clip Preview</h3>
+                <p id="modal-clip-desc">High retention video segment</p>
+                <a id="modal-download-link" href="#" download class="btn-primary full-width">
+                    <i class="fa-solid fa-download"></i> Download 9:16 Vertical Video MP4
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <p>© 2026 Clipz-Stream AI Engine. Powered by Modal T4 Cloud GPU & Groq Llama-3.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
