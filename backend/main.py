@@ -121,11 +121,11 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
                 push_job_update(job_id, progress=mapped_p, current_step=f"Downloading source video ({dl_mb}MB / {tot_mb}MB - {pct}%)...")
 
     clients_attempts = [
-        ['android_embedded'],
-        ['android'],
+        ['android_vr'],
         ['tv_embedded'],
-        ['web_embedded'],
+        ['android'],
         ['mweb'],
+        ['web'],
     ]
 
     last_error = None
@@ -137,7 +137,7 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
             yt_args['player_client'] = client_list
 
         ydl_opts = {
-            'format': 'b/best',
+            'format': '18/134+140/b/best',
             'merge_output_format': 'mp4',
             'final_ext': 'mp4',
             'outtmpl': out_file,
@@ -190,10 +190,28 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
                                 if chunk: f_out.write(chunk)
                         if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
                             return out_file
-    except Exception as fallback_e:
-        logger.warning(f"Direct stream extraction fallback failed: {fallback_e}")
+    except Exception as e:
+        logger.warning(f"Direct stream parse note: {e}")
 
-    raise Exception(f"Ingestion failed for {url}: {last_error if last_error else 'Stream unavailable'}. Please try another link or upload a local file.")
+    # Datacenter IP Fallback: Download audio-only stream (Format 251/bestaudio) which YouTube allows without captcha
+    try:
+        logger.info("Attempting audio-only stream fallback for datacenter IP...")
+        ydl_opts_audio = {
+            'format': 'bestaudio/best',
+            'outtmpl': out_file,
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {'youtube': {'player_client': ['android_vr']}}
+        }
+        with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl:
+            ydl.download([url])
+        if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
+            logger.info(f"Audio-only stream fallback succeeded: {out_file}")
+            return out_file
+    except Exception as ae:
+        logger.warning(f"Audio stream fallback note: {ae}")
+
+    raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. Please try another link or upload a local file.")
 
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
