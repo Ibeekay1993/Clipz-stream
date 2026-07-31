@@ -487,6 +487,31 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     else:
         return f"/clips/{os.path.basename(out)}"
 
+def deepseek_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
+    """DeepSeek-R1 Viral Reasoning AI via Free OpenRouter Inference"""
+    payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "text": c.text} for idx, c in enumerate(chunks)]
+    prompt = f"""
+Analyze the transcript chunks below and select top {n} viral clips for TikTok/Reels:
+{json.dumps(payload_chunks, indent=2)}
+
+Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int, "hookType": str, "viralReason": str}}]}}
+"""
+    try:
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Content-Type": "application/json"},
+            json={"model": "deepseek/deepseek-r1:free", "messages": [{"role": "user", "content": prompt}]},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            content = resp.json()['choices'][0]['message']['content']
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            return json.loads(content).get("clips", [])
+    except Exception as e:
+        logger.warning(f"DeepSeek-R1 reasoning skipped: {e}")
+    return []
+
 def gemini_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     """Fallback Multi-Modal Virality Analysis via Google Gemini 2.0 / 2.5 Flash API"""
     gemini_key = os.getenv("GEMINI_API_KEY")
@@ -557,6 +582,13 @@ Return ONLY a JSON object with key "clips". Each clip must have:
 - "hookType": str (one of: Secret, Revelation, Story, Contrarian, Tutorial, Curiosity, Emotional, Warning)
 - "viralReason": str (1 crisp sentence explaining why this clip will perform well)
 """
+        ds_res = deepseek_analyze_chunks(chunks, n)
+        if ds_res:
+            logger.info("DeepSeek-R1 reasoning engine selected top clips successfully!")
+            return ds_res
+    except Exception as e:
+        logger.info(f"DeepSeek-R1 note: {e}")
+
     try:
         resp = client.chat.completions.create(
             model="llama-3.3-70b-versatile",

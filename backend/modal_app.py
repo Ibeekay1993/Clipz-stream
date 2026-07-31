@@ -17,7 +17,9 @@ image = (
         "requests",
         "aiohttp",
         "python-multipart",
-        "opencv-python-headless"
+        "opencv-python-headless",
+        "edge-tts",
+        "ultralytics"
     )
     .env({
         "BUILD_ID": "20260731_v13",
