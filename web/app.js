@@ -238,17 +238,16 @@ function renderResults(resultData) {
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.innerHTML = `
-            <div class="clip-thumb" onclick="openVideoModal('${clipUrl}', '${escapeHtml(clipTitle)}', '${escapeHtml(clip.viralReason || '')}')">
-                <video src="${clipUrl}#t=0.1" preload="metadata"></video>
-                <div class="play-overlay"><i class="fa-solid fa-play"></i></div>
+            <div class="clip-thumb">
+                <video src="${clipUrl}" playsinline controls preload="metadata" style="width:100%; height:100%; object-fit:cover; border-radius:12px;"></video>
                 <div class="score-badge">🔥 ${viralScore}/100</div>
             </div>
             <div class="clip-info">
                 <h3 class="clip-title">${escapeHtml(clipTitle)}</h3>
                 <p class="clip-meta"><i class="fa-regular fa-clock"></i> ${duration}s • 9:16 Vertical format</p>
                 <div class="clip-actions">
-                    <a href="${clipUrl}" download class="btn-primary full-width">
-                        <i class="fa-solid fa-download"></i> Download MP4
+                    <a href="${clipUrl}" download target="_blank" class="btn-primary full-width">
+                        <i class="fa-solid fa-download"></i> Download Video MP4
                     </a>
                 </div>
             </div>
