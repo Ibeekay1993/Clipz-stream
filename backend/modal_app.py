@@ -20,10 +20,11 @@ image = (
         "opencv-python-headless"
     )
     .env({
-        "BUILD_ID": "20260731_v12",
+        "BUILD_ID": "20260731_v13",
         "SUPABASE_URL": "https://oprejbzmizpsuhflagss.supabase.co",
         "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcmVqYnptaXpwc3VoZmxhZ3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3ODAxMzksImV4cCI6MjEwMDM1NjEzOX0.HQX82um7uP8-e-kdLUyK6lLybWW3ufGy8cGSqRw2_fY",
-        "GROQ_API_KEY": os.getenv("GROQ_API_KEY", "")
+        "GROQ_API_KEY": os.getenv("GROQ_API_KEY", ""),
+        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY", "")
     })
     .add_local_file(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"),
