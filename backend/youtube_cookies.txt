@@ -1,0 +1,8 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+.youtube.com	TRUE	/	FALSE	1800000000	PREF	f6=40000000&hl=en&tz=UTC
+.youtube.com	TRUE	/	FALSE	1800000000	SOCS	CAI
+.youtube.com	TRUE	/	FALSE	1800000000	GPS	1
+.youtube.com	TRUE	/	FALSE	1800000000	VISITOR_INFO1_LIVE	q9u6W2Z7zXk

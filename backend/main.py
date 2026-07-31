@@ -106,8 +106,13 @@ def _cookiefile_path():
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
     cookiefile = _cookiefile_path()
-    proxy = os.getenv("YTDLP_PROXY")
+    if not cookiefile:
+        default_ck = os.path.join(os.path.dirname(__file__), "youtube_cookies.txt")
+        if os.path.exists(default_ck):
+            cookiefile = default_ck
+
     po_token = os.getenv("YTDLP_PO_TOKEN")
+    proxy = os.getenv("YTDLP_PROXY")
 
     def _yt_progress_hook(d):
         if d.get("status") == "downloading" and job_id:
