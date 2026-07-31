@@ -3,6 +3,20 @@ const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
 
 let selectedFile = null;
 let pollingInterval = null;
+let currentCaptionStyle = "opus";
+let currentAspectRatio = "9:16";
+
+function selectCaptionStyle(btn, styleName) {
+    document.querySelectorAll('#caption-style-chips .chip-option').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentCaptionStyle = styleName;
+}
+
+function selectAspectRatio(btn, ratioName) {
+    document.querySelectorAll('#aspect-ratio-chips .chip-option').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentAspectRatio = ratioName;
+}
 
 // Tab Switching
 function switchTab(tabName) {
