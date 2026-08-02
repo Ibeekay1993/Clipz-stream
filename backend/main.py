@@ -236,6 +236,52 @@ class Chunk:
         raw = " ".join(w["word"] for w in self.words[:6])
         return re.sub(r"[^\w\s]", "", raw).strip().capitalize()
 
+
+def get_duration(video_path: str) -> float:
+    """Return video duration in seconds using ffprobe, or 0 when probing fails."""
+    try:
+        res = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", video_path
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return float((res.stdout or "0").strip() or 0)
+    except Exception as e:
+        logger.warning(f"Could not probe video duration for {video_path}: {e}")
+        return 0.0
+
+
+def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
+    """Last-resort segmentation so uploads still produce downloadable clips."""
+    duration = get_duration(video_path) or 60.0
+    clip_count = max(1, min(max_clips, 8))
+    clip_len = min(30.0, max(10.0, duration / clip_count))
+    chunks: List[Chunk] = []
+    start = 0.0
+    while start < duration and len(chunks) < clip_count:
+        end = min(start + clip_len, duration)
+        if end - start < 5.0:
+            break
+        label = f"Auto fallback segment {len(chunks) + 1}"
+        chunks.append(
+            Chunk(
+                start=start,
+                end=end,
+                text=label,
+                words=[{"word": label, "startMs": int(start * 1000), "endMs": int(end * 1000)}],
+                score=max(70, 86 - (len(chunks) * 3)),
+                hook="General",
+                reasons=["Generated from timed fallback because transcript AI was unavailable."],
+                viable=True,
+            )
+        )
+        start = end
+    return chunks
 def transcribe(video_path: str) -> List[dict]:
     # 1. Extract audio
     audio_path = video_path + ".mp3"
@@ -708,27 +754,24 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.warning(f"YouTubeTranscriptApi fast-track note: {yte}")
 
     if not words:
-        words = transcribe(vpath)
+        try:
+            words = transcribe(vpath)
+        except Exception as te:
+            logger.warning(f"Speech transcription unavailable, falling back to timed clips: {te}")
+            words = []
         
     chunks = semantic_chunks(words) if words else []
     if not chunks:
-        # Fail-safe: Generate 20-second uniform time segments
-        logger.info("Generating fail-safe 20s time chunks...")
-        dur = get_duration(vpath) or 60.0
-        step_s = 20.0
-        c_idx = 0
-        curr = 0.0
-        while curr < dur and c_idx < 10:
-            end_s = min(curr + step_s, dur)
-            chunks.append(Chunk(start=curr, end=end_s, words=[{"word": "Viral Segment", "startMs": int(curr*1000), "endMs": int(end_s*1000)}]))
-            curr += step_s
-            c_idx += 1
-
+        logger.info("Generating fail-safe timed chunks...")
+        chunks = build_uniform_chunks(vpath, n)
     if not chunks: raise HTTPException(500, "Could not form video segments")
 
     # Call Orchestrated Multi-AI Microservices Pipeline
-    ai_analysis = orchestrate_multi_ai_pipeline(chunks, n)
-    
+    try:
+        ai_analysis = orchestrate_multi_ai_pipeline(chunks, n)
+    except Exception as ae:
+        logger.warning(f"AI clip analysis unavailable, using heuristic chunk scores: {ae}")
+        ai_analysis = []
     chosen_chunks = []
     if ai_analysis:
         for la in ai_analysis:
