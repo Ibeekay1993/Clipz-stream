@@ -104,11 +104,9 @@ class VideoClipperViewModel(application: Application) : AndroidViewModel(applica
             } catch (e: Exception) {
                 null
             }
-            if (!keyFromConfig.isNullOrBlank() && keyFromConfig != "YOUR_SUPABASE_ANON_KEY") {
-                keyFromConfig
-            } else {
-                "sb_publishable_veLZNP-CbhYwDTpqgMdyKQ_q4l8PF-9"
-            }
+            keyFromConfig
+                ?.takeIf { it.isNotBlank() && it != "YOUR_SUPABASE_ANON_KEY" }
+                ?: ""
         }
     )
     val isSupabaseSynced = MutableStateFlow<Boolean?>(null)

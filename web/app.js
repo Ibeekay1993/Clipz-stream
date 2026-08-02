@@ -269,7 +269,8 @@ function renderResults(resultData) {
     document.getElementById('clips-total-badge').innerText = `${resultData.clips.length} Clips Ready`;
 
     resultData.clips.forEach((clip, index) => {
-        const clipUrl = clip.clipUrl ? (clip.clipUrl.startsWith('/') ? `${MODAL_BASE_URL}${clip.clipUrl}` : clip.clipUrl) : '';
+        const rawClipUrl = clip.clipUrl || clip.clip_url || '';
+        const clipUrl = rawClipUrl ? (rawClipUrl.startsWith('/') ? `${MODAL_BASE_URL}${rawClipUrl}` : rawClipUrl) : '';
         const viralScore = clip.viralScore || 95;
         const clipTitle = clip.title || `Viral Clip #${index + 1}`;
         const duration = Math.round((clip.endSec - clip.startSec) || 30);

@@ -19,7 +19,8 @@ image = (
         "python-multipart",
         "opencv-python-headless",
         "edge-tts",
-        "ultralytics"
+        "ultralytics",
+        "youtube-transcript-api"
     )
     .env({
         "BUILD_ID": "20260731_v13",

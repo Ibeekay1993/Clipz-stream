@@ -76,7 +76,7 @@ data class GeminiClipsListResponse(
 // --- Retrofit Service Definitions ---
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    @POST("v1beta/models/gemini-2.0-flash:generateContent")
     suspend fun generateContent(
         @Query("key") apiKey: String,
         @Body request: GeminiRequest
@@ -112,7 +112,7 @@ object GeminiApiClient {
         videoDurationSeconds: Long
     ): GeminiClipsListResponse? {
         val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
             return null // Fallback to mock data generation locally if key is missing/placeholder
         }
 

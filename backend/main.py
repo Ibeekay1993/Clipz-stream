@@ -683,14 +683,48 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         if job_id:
             push_job_update(job_id, prog, step)
 
-    update_job(10, "Extracting audio & Groq WhisperX transcription...")
-    logger.info("Starting Groq Whisper AI Engine analysis...")
-    words = transcribe(vpath)
-    if not words: raise HTTPException(500, "No speech detected in video")
+    update_job(10, "Extracting audio & speech transcription...")
+    logger.info("Starting Multi-AI Engine transcript analysis...")
+    words = []
     
-    update_job(35, "Multi-AI Microservices Virality & Retention Analysis...")
-    chunks = semantic_chunks(words)
-    if not chunks: raise HTTPException(500, "Could not form speech segments")
+    # Fast-Track 1: Try YoutubeTranscriptApi for YouTube links
+    if "youtube.com" in url_or_name or "youtu.be" in url_or_name:
+        try:
+            vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url_or_name)
+            if vid_match:
+                v_id = vid_match.group(1)
+                from youtube_transcript_api import YouTubeTranscriptApi
+                api = YouTubeTranscriptApi()
+                yt_trans = api.fetch(v_id)
+                if yt_trans:
+                    logger.info(f"YouTubeTranscriptApi fast-track fetched {len(yt_trans)} captions for {v_id}")
+                    for item in yt_trans:
+                        s_ms = int(item.get('start', 0) * 1000)
+                        d_ms = int(item.get('duration', 2.0) * 1000)
+                        text_val = item.get('text', '')
+                        for w in text_val.split():
+                            words.append({"word": w, "startMs": s_ms, "endMs": s_ms + d_ms})
+        except Exception as yte:
+            logger.warning(f"YouTubeTranscriptApi fast-track note: {yte}")
+
+    if not words:
+        words = transcribe(vpath)
+        
+    chunks = semantic_chunks(words) if words else []
+    if not chunks:
+        # Fail-safe: Generate 20-second uniform time segments
+        logger.info("Generating fail-safe 20s time chunks...")
+        dur = get_duration(vpath) or 60.0
+        step_s = 20.0
+        c_idx = 0
+        curr = 0.0
+        while curr < dur and c_idx < 10:
+            end_s = min(curr + step_s, dur)
+            chunks.append(Chunk(start=curr, end=end_s, words=[{"word": "Viral Segment", "startMs": int(curr*1000), "endMs": int(end_s*1000)}]))
+            curr += step_s
+            c_idx += 1
+
+    if not chunks: raise HTTPException(500, "Could not form video segments")
 
     # Call Orchestrated Multi-AI Microservices Pipeline
     ai_analysis = orchestrate_multi_ai_pipeline(chunks, n)
