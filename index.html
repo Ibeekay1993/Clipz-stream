@@ -122,6 +122,67 @@
                             <div class="video-duration-badge" id="video-preview-duration"><i class="fa-brands fa-youtube text-red"></i> Verified</div>
                         </div>
                         <div class="video-preview-details">
+                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1 Complete: Media Ingested</span>
+                            <h3 id="video-preview-title" class="video-preview-title">Lex Fridman AI Podcast</h3>
+                            <p id="video-preview-author" class="video-preview-author">Channel • Verified Media Stream</p>
+                        </div>
+                    </div>
+
+                    <!-- Commercial Style Customization Controls -->
+                    <div class="preset-controls-grid">
+                        <!-- Captions Style Selector -->
+                        <div class="control-box">
+                            <label><i class="fa-solid fa-closed-captioning text-neon"></i> Subtitle Style Preset</label>
+                            <div class="preset-chips" id="caption-style-chips">
+                                <button type="button" class="chip-option active" data-style="opus" onclick="selectCaptionStyle(this, 'opus')">
+                                    ⚡ Opus Active Glow
+                                </button>
+                                <button type="button" class="chip-option" data-style="hormozi" onclick="selectCaptionStyle(this, 'hormozi')">
+                                    🎯 Hormozi Impact
+                                </button>
+                                <button type="button" class="chip-option" data-style="mrbeast" onclick="selectCaptionStyle(this, 'mrbeast')">
+                                    🔥 MrBeast Cyber
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Target Aspect Ratio -->
+                        <div class="control-box">
+                            <label><i class="fa-solid fa-crop text-neon"></i> Output Aspect Ratio</label>
+                            <div class="preset-chips" id="aspect-ratio-chips">
+                                <button type="button" class="chip-option active" data-ratio="9:16" onclick="selectAspectRatio(this, '9:16')">
+                                    📱 9:16 TikTok / Shorts
+                                </button>
+                                <button type="button" class="chip-option" data-ratio="1:1" onclick="selectAspectRatio(this, '1:1')">
+                                    🟩 1:1 Square
+                                </button>
+                                <button type="button" class="chip-option" data-ratio="16:9" onclick="selectAspectRatio(this, '16:9')">
+                                    📺 16:9 Landscape
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Number of Clips & Action Buttons -->
+                    <div class="wizard-actions-bar">
+                        <button type="button" class="btn-secondary" onclick="goToWizardStep(1)">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Import
+                        </button>
+
+                        <div class="clips-count-selector">
+                            <label for="clips-count">Clips Count:</label>
+                            <select id="clips-count" class="select-input">
+                                <option value="1">1 Clip</option>
+                                <option value="2">2 Clips</option>
+                                <option value="3" selected>3 Clips</option>
+                                <option value="5">5 Clips</option>
+                            </select>
+                        </div>
+
+                        <button type="button" class="btn-primary" onclick="submitWizardJob()">
+                            <span>Generate Viral Clips Now</span> <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
