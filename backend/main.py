@@ -27,8 +27,12 @@ app = FastAPI(title="Clipz-Stream Backend (Groq + Supabase Architecture)")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ── Storage Configuration ──────────────────────────────────────────────────
-RAW_UPLOADS_DIR = "raw_uploads"
-CLIPS_DIR = "clips"
+_STORAGE_ROOT = os.getenv("CLIPZ_STORAGE_DIR")
+if not _STORAGE_ROOT and os.path.exists("/root/storage"):
+    _STORAGE_ROOT = "/root/storage"
+
+RAW_UPLOADS_DIR = os.path.join(_STORAGE_ROOT, "raw_uploads") if _STORAGE_ROOT else "raw_uploads"
+CLIPS_DIR = os.path.join(_STORAGE_ROOT, "clips") if _STORAGE_ROOT else "clips"
 os.makedirs(RAW_UPLOADS_DIR, exist_ok=True)
 os.makedirs(CLIPS_DIR, exist_ok=True)
 
@@ -545,16 +549,24 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
         try: os.remove(ass_path)
         except: pass
 
-    # Upload to Supabase Storage
+    # Prefer Supabase Storage, but keep the locally generated Modal clip usable.
+    fname = os.path.basename(out)
     if supabase:
-        fname = os.path.basename(out)
-        with open(out, 'rb') as f:
-            res = supabase.storage.from_("clips").upload(path=fname, file=f, file_options={"content-type": "video/mp4"})
-            logger.info(f"Supabase upload response: {res}")
-        public_url = supabase.storage.from_("clips").get_public_url(fname)
-        return public_url
-    else:
-        return f"/clips/{os.path.basename(out)}"
+        try:
+            with open(out, 'rb') as f:
+                res = supabase.storage.from_("clips").upload(path=fname, file=f, file_options={"content-type": "video/mp4", "upsert": "true"})
+                logger.info(f"Supabase upload response: {res}")
+            public_url = supabase.storage.from_("clips").get_public_url(fname)
+            return public_url
+        except Exception as e:
+            logger.warning(f"Supabase clip upload failed; serving Modal clip locally: {e}")
+
+    if modal_volume:
+        try:
+            modal_volume.commit()
+        except Exception as ve:
+            logger.warning(f"Modal volume commit note after clip transcode: {ve}")
+    return f"/clips/{fname}"
 
 def deepseek_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     """DeepSeek-R1 Viral Reasoning AI via Free OpenRouter Inference"""
@@ -956,3 +968,4 @@ try:
         return app
 except Exception:
     pass
+

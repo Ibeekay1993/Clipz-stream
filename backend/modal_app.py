@@ -4,7 +4,7 @@ import os
 # Define the container image with all necessary OS packages and Python libraries
 # AND copy the local backend files inside the container directly
 image = (
-    modal.Image.debian_slim()
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg")
     .pip_install(
         "groq",
