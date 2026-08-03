@@ -20,3 +20,4 @@ __pycache__/
 *.pyc
 backend/raw_uploads/
 clips/
+.gradle-user-home/
