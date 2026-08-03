@@ -53,7 +53,7 @@ fun CompletedScreen(
             // Header
             Column(modifier = Modifier.padding(top = 16.dp)) {
                 Text(
-                    text = "LClipz History",
+                    text = "LClipz Clips",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White
@@ -88,7 +88,7 @@ fun CompletedScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Studio Gallery is Empty",
+                            text = "Clip Gallery is Empty",
                             color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
@@ -409,3 +409,4 @@ fun CompletedScreen(
 fun Clip.clipStyleLabel(): String {
     return "Style: $captionStyle, Crop: $aspectRatio, Pan: ${(panOffset * 100).toInt()}%"
 }
+

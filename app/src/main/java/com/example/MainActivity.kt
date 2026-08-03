@@ -95,11 +95,11 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = currentTab == 2,
                                 onClick = { currentTab = 2 },
-                                label = { Text("History", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) },
+                                label = { Text("Clips", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) },
                                 icon = {
                                     Icon(
                                         imageVector = if (currentTab == 2) Icons.Filled.FolderSpecial else Icons.Outlined.FolderSpecial,
-                                        contentDescription = "Studio History tab"
+                                        contentDescription = "Clips tab"
                                     )
                                 },
                                 colors = NavigationBarItemDefaults.colors(
@@ -186,3 +186,4 @@ fun TopBarBranding() {
         }
     }
 }
+

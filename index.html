@@ -14,6 +14,13 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <div class="top-banner">
+        <div class="banner-content">
+            <span class="badge-new">ANDROID UPDATE</span>
+            <span>Install the latest LClipz app before Play Store launch.</span>
+            <a href="/lclipz-android-latest.apk" download class="btn-download-apk"><i class="fa-solid fa-download"></i> Get v1.1 APK</a>
+        </div>
+    </div>
     <!-- Main Navigation Bar -->
     <header class="navbar">
         <div class="nav-container">
@@ -23,7 +30,7 @@
             </div>
             <nav class="nav-links">
                 <a href="#clipper" class="nav-item active"><i class="fa-solid fa-scissors"></i> Clipper</a>
-                <a href="/app-debug.apk" download class="btn-nav-download"><i class="fa-solid fa-mobile-screen-button"></i> Download App</a>
+                <a href="/lclipz-android-latest.apk" download class="btn-nav-download"><i class="fa-solid fa-mobile-screen-button"></i> Download Android v1.1</a>
             </nav>
         </div>
     </header>
@@ -35,7 +42,7 @@
             
             <div class="hero-header">
                 <h1 class="hero-title">Turn Long Videos into <span class="gradient-text">Viral Shorts</span></h1>
-                <p class="hero-subtitle">Turn podcasts, interviews, and videos into 9:16 Shorts with animated subtitles.</p>
+                <p class="hero-subtitle">One studio across web and Android: upload or paste a link, auto-find viral moments, burn in captions, reframe to 9:16, and download ready-to-post MP4 clips.</p>
             </div>
 
             <!-- Main Interactive Studio Card -->
@@ -146,6 +153,18 @@
                 </div>
             </div>
 
+
+            <section class="app-update-panel" id="android-update">
+                <div class="app-update-copy">
+                    <span class="video-status-tag"><i class="fa-solid fa-mobile-screen-button text-neon"></i> Android early access</span>
+                    <h2>Use the same LClipz studio on your phone.</h2>
+                    <p>The website and Android app now share the same dark neon design, upload/link workflow, captioned clips, and Modal backend. Download the latest APK here until Play Store launch.</p>
+                </div>
+                <div class="app-update-actions">
+                    <a href="/lclipz-android-latest.apk" download class="btn-primary full-width"><i class="fa-solid fa-download"></i> Download Android v1.1 APK</a>
+                    <a href="#clipper" class="btn-secondary app-update-secondary"><i class="fa-solid fa-scissors"></i> Use Web Studio</a>
+                </div>
+            </section>
             <!-- Live Downloading Progress Monitor Card -->
             <div class="progress-card" id="progress-card" style="display: none;">
                 <div class="progress-header">
@@ -209,7 +228,7 @@
         </button>
         <button class="mobile-nav-item" id="mobile-nav-presets" onclick="switchMobileTab('presets')">
             <i class="fa-solid fa-wand-magic-sparkles"></i>
-            <span>Presets</span>
+            <span>Styles</span>
         </button>
         <button class="mobile-nav-item" id="mobile-nav-history" onclick="switchMobileTab('history')">
             <i class="fa-solid fa-film"></i>
@@ -227,3 +246,5 @@
     <script src="app.js"></script>
 </body>
 </html>
+
+
