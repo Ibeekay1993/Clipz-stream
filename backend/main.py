@@ -389,10 +389,11 @@ def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: st
 ScriptType: v4.00+
 PlayResX: 720
 PlayResY: 1280
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,46,&H0000FFFF,&H0000FF00,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,5,2,2,20,20,220,1
+Style: Default,Arial,58,&H00FFFFFF,&H0000FF00,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,7,3,2,34,34,180,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -408,6 +409,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cs = int((sec % 1) * 100)
         return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
 
+    def ass_escape(text: str) -> str:
+        return (
+            text.replace("\\", "\\\\")
+            .replace("{", "")
+            .replace("}", "")
+            .replace("\n", " ")
+            .strip()
+        )
+
     chunk_size = 3
     for i in range(0, len(clip_words), chunk_size):
         group = clip_words[i:i + chunk_size]
@@ -419,11 +429,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             formatted_words = []
             for j, w in enumerate(group):
-                word_str = str(w.get("word", "")).upper()
+                word_str = ass_escape(str(w.get("word", ""))).upper()
+                if not word_str:
+                    continue
                 if j == idx:
-                    formatted_words.append(f"{{\\c&H0000FF00&\\fscx115\\fscy115}}{word_str}{{\\r}}")
+                    formatted_words.append(f"{{\\c&H0000FF00&\\fscx118\\fscy118}}{word_str}{{\\r}}")
                 else:
-                    formatted_words.append(f"{{\\c&H0000FFFF&}}{word_str}")
+                    formatted_words.append(f"{{\\c&H00FFFFFF&}}{word_str}")
             
             line_text = " ".join(formatted_words)
             start_str = format_time(w_start)
@@ -968,4 +980,6 @@ try:
         return app
 except Exception:
     pass
+
+
 
