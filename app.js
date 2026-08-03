@@ -2,6 +2,59 @@
 const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run";
 
 let selectedFile = null;
+let currentWizardStep = 1;
+
+function goToWizardStep(stepNum) {
+    if (stepNum === 2) {
+        const activeTab = document.querySelector('.tab-btn.active') ? document.querySelector('.tab-btn.active').id : 'tab-youtube-btn';
+        if (activeTab === 'tab-youtube-btn') {
+            const url = document.getElementById('yt-url-input').value.trim();
+            if (!url) {
+                alert("Please paste a valid YouTube URL first!");
+                return;
+            }
+            onUrlInputChange(url);
+        } else if (activeTab === 'tab-file-btn') {
+            if (!selectedFile) {
+                alert("Please select or drop a video file first!");
+                return;
+            }
+            document.getElementById('video-preview-title').innerText = selectedFile.name;
+            document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024*1024)).toFixed(1)}MB`;
+            document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
+        }
+    }
+
+    currentWizardStep = stepNum;
+
+    document.querySelectorAll('.wizard-step').forEach((el, idx) => {
+        if (idx + 1 <= stepNum) {
+            el.classList.add('active');
+        } else {
+            el.classList.remove('active');
+        }
+    });
+
+    document.querySelectorAll('.wizard-panel').forEach((panel, idx) => {
+        if (idx + 1 === stepNum) {
+            panel.classList.add('active');
+        } else {
+            panel.classList.remove('active');
+        }
+    });
+}
+
+function submitWizardJob() {
+    goToWizardStep(3);
+    const activeTab = document.querySelector('.tab-btn.active') ? document.querySelector('.tab-btn.active').id : 'tab-youtube-btn';
+    if (activeTab === 'tab-youtube-btn') {
+        const fakeEvent = { preventDefault: () => {} };
+        handleYoutubeSubmit(fakeEvent);
+    } else {
+        handleFileUploadSubmit();
+    }
+}
+
 let pollingInterval = null;
 let currentCaptionStyle = "opus";
 let currentAspectRatio = "9:16";

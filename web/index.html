@@ -43,113 +43,85 @@
             <div class="hero-header">
                 <h1 class="hero-title">Turn Long Videos into <span class="gradient-text">Viral Shorts</span></h1>
                 <p class="hero-subtitle">One studio across web and Android: upload or paste a link, auto-find viral moments, burn in captions, reframe to 9:16, and download ready-to-post MP4 clips.</p>
+            </div>            <!-- Wayin / Vizard Multi-Step Wizard Stepper -->
+            <div class="wizard-stepper">
+                <div class="wizard-step active" id="step-indicator-1">
+                    <div class="step-number">1</div>
+                    <div class="step-label">Import Media</div>
+                </div>
+                <div class="step-connector"></div>
+                <div class="wizard-step" id="step-indicator-2">
+                    <div class="step-number">2</div>
+                    <div class="step-label">Style & Presets</div>
+                </div>
+                <div class="step-connector"></div>
+                <div class="wizard-step" id="step-indicator-3">
+                    <div class="step-number">3</div>
+                    <div class="step-label">Viral Clips</div>
+                </div>
             </div>
 
-            <!-- Main Interactive Studio Card -->
-            <div class="clipper-card">
-                <!-- Source Input Tabs -->
-                <div class="tab-buttons">
-                    <button class="tab-btn active" id="tab-youtube-btn" onclick="switchTab('youtube')">
-                        <i class="fa-brands fa-youtube text-red"></i> YouTube Link
-                    </button>
-                    <button class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">
-                        <i class="fa-solid fa-cloud-arrow-up text-neon"></i> Upload Video File
-                    </button>
-                </div>
+            <!-- STEP 1: IMPORT MEDIA PANEL -->
+            <div class="wizard-panel active" id="wizard-step-1">
+                <div class="clipper-card">
+                    <!-- Source Input Tabs -->
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" id="tab-youtube-btn" onclick="switchTab('youtube')">
+                            <i class="fa-brands fa-youtube text-red"></i> YouTube Link
+                        </button>
+                        <button class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">
+                            <i class="fa-solid fa-cloud-arrow-up text-neon"></i> Upload Video File
+                        </button>
+                    </div>
 
-                <!-- YouTube Form Panel -->
-                <div class="tab-panel active" id="panel-youtube">
-                    <form id="youtube-form" onsubmit="handleYoutubeSubmit(event)">
+                    <!-- YouTube Input -->
+                    <div class="tab-panel active" id="panel-youtube">
                         <div class="input-group">
                             <i class="fa-solid fa-link input-icon"></i>
                             <input type="url" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" required oninput="onUrlInputChange(event)">
-                            <button type="submit" class="btn-primary" id="yt-submit-btn">
-                                <span>Generate Viral Clips</span> <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <button type="button" class="btn-primary" onclick="goToWizardStep(2)">
+                                <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
                             </button>
                         </div>
-                    </form>
-                    
-                    <!-- Wayin/OpusClip Step 1 Ingest Preview Card -->
-                    <div class="video-ingest-card" id="video-ingest-card" style="display: none;">
+
+                        <div class="sample-links">
+                            <span>Try example link:</span>
+                            <button type="button" class="sample-chip" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
+                                🎙️ Lex Fridman AI Podcast
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- File Drag & Drop Panel -->
+                    <div class="tab-panel" id="panel-file">
+                        <div class="dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
+                            <input type="file" id="file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;" onchange="handleFileSelect(event)">
+                            <div class="dropzone-content">
+                                <div class="dropzone-icon"><i class="fa-solid fa-film"></i></div>
+                                <h3 id="dropzone-title">Drag & Drop video file here</h3>
+                                <p id="dropzone-subtitle">Supports MP4, MKV, or WEBM up to 500MB</p>
+                                <button type="button" class="btn-secondary" id="dropzone-browse-btn">Browse File</button>
+                            </div>
+                        </div>
+                        <div class="file-action" id="file-action-container" style="display: none; margin-top: 16px;">
+                            <button type="button" class="btn-primary full-width" onclick="goToWizardStep(2)">
+                                <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 2: STYLE & PRESETS WIZARD PANEL -->
+            <div class="wizard-panel" id="wizard-step-2">
+                <div class="clipper-card">
+                    <!-- Wayin/OpusClip Video Metadata Preview Card -->
+                    <div class="video-ingest-card" id="video-ingest-card" style="display: flex;">
                         <div class="video-thumb-container">
-                            <img id="video-preview-thumb" src="" alt="Video Thumbnail">
+                            <img id="video-preview-thumb" src="https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg" alt="Video Thumbnail">
                             <div class="video-duration-badge" id="video-preview-duration"><i class="fa-brands fa-youtube text-red"></i> Verified</div>
                         </div>
                         <div class="video-preview-details">
-                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1: Video Ready</span>
-                            <h3 id="video-preview-title" class="video-preview-title">Video Title</h3>
-                            <p id="video-preview-author" class="video-preview-author">Channel</p>
-                        </div>
-                    </div>
-
-                    <div class="sample-links">
-                        <span>Try example link:</span>
-                        <button type="button" class="sample-chip" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
-                            🎙️ Lex Fridman AI Podcast
-                        </button>
-                    </div>
-                </div>
-
-                <!-- File Drag & Drop Panel -->
-                <div class="tab-panel" id="panel-file">
-                    <div class="dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
-                        <input type="file" id="file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;" onchange="handleFileSelect(event)">
-                        <div class="dropzone-content">
-                            <div class="dropzone-icon"><i class="fa-solid fa-film"></i></div>
-                            <h3 id="dropzone-title">Drag & Drop video file here</h3>
-                            <p id="dropzone-subtitle">Supports MP4, MKV, or WEBM up to 500MB</p>
-                            <button type="button" class="btn-secondary" id="dropzone-browse-btn">Browse File</button>
-                        </div>
-                    </div>
-                    <div class="file-action" id="file-action-container" style="display: none;">
-                        <button type="button" class="btn-primary full-width" onclick="handleFileUploadSubmit()">
-                            <span>Upload & Generate Clips</span> <i class="fa-solid fa-bolt"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Commercial Style Customization Controls -->
-                <div class="preset-controls-grid">
-                    <!-- Captions Style Selector -->
-                    <div class="control-box">
-                        <label><i class="fa-solid fa-closed-captioning text-neon"></i> Subtitle Style Preset</label>
-                        <div class="preset-chips" id="caption-style-chips">
-                            <button type="button" class="chip-option active" data-style="opus" onclick="selectCaptionStyle(this, 'opus')">
-                                ⚡ Opus Active Glow
-                            </button>
-                            <button type="button" class="chip-option" data-style="hormozi" onclick="selectCaptionStyle(this, 'hormozi')">
-                                🎯 Hormozi Impact
-                            </button>
-                            <button type="button" class="chip-option" data-style="mrbeast" onclick="selectCaptionStyle(this, 'mrbeast')">
-                                🔥 MrBeast Cyber
-                            </button>
-                            <button type="button" class="chip-option" data-style="minimal" onclick="selectCaptionStyle(this, 'minimal')">
-                                💎 Minimal Substack
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Aspect Ratio Switcher -->
-                    <div class="control-box">
-                        <label><i class="fa-solid fa-crop text-neon"></i> Video Aspect Ratio</label>
-                        <div class="preset-chips" id="aspect-ratio-chips">
-                            <button type="button" class="chip-option active" data-ratio="9:16" onclick="selectAspectRatio(this, '9:16')">
-                                📱 9:16 Vertical
-                            </button>
-                            <button type="button" class="chip-option" data-ratio="1:1" onclick="selectAspectRatio(this, '1:1')">
-                                🟩 1:1 Square
-                            </button>
-                            <button type="button" class="chip-option" data-ratio="16:9" onclick="selectAspectRatio(this, '16:9')">
-                                📺 16:9 Landscape
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Number of Clips Slider -->
-                <div class="options-row">
-                    <label for="clips-count">Target Clips Output: <span id="clips-count-val">3</span> Clips</label>
-                    <input type="range" id="clips-count" min="1" max="6" value="3" oninput="document.getElementById('clips-count-val').innerText = this.value">
                 </div>
             </div>
 

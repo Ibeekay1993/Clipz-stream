@@ -670,6 +670,103 @@ body {
     object-fit: contain;
 }
 
+/* Wayin & Vizard Multi-Step Wizard Styling */
+.wizard-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.wizard-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0.45;
+    transition: all 0.3s ease;
+}
+
+.wizard-step.active {
+    opacity: 1;
+}
+
+.step-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface-slate);
+    border: 2px solid var(--text-muted);
+    color: #FFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.9rem;
+}
+
+.wizard-step.active .step-number {
+    background: var(--primary-neon);
+    border-color: var(--primary-neon);
+    color: #000;
+    box-shadow: 0 0 16px rgba(0, 255, 135, 0.4);
+}
+
+.step-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #FFF;
+}
+
+.step-connector {
+    width: 40px;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.wizard-panel {
+    display: none;
+}
+
+.wizard-panel.active {
+    display: block;
+    animation: fadeInStep 0.35s ease-out forwards;
+}
+
+@keyframes fadeInStep {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.wizard-actions-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.clips-count-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.select-input {
+    background: var(--surface-slate);
+    color: #FFF;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 700;
+    outline: none;
+}
+
 /* Wayin / OpusClip Ingest Preview Card */
 .video-ingest-card {
     display: flex;
