@@ -694,7 +694,7 @@ JOBS = {}
 modal_background_job_fn = None
 modal_volume = None
 
-STORAGE_DIR = "/root/storage" if os.path.exists("/root/storage") or os.access("/root", os.W_OK) else tempfile.gettempdir()
+STORAGE_DIR = _STORAGE_ROOT if _STORAGE_ROOT else ("/root/storage" if os.path.exists("/root/storage") or os.path.exists("/root") else tempfile.gettempdir())
 JOBS_FILE = os.path.join(STORAGE_DIR, "jobs_state.json")
 
 def _save_jobs_to_disk():
@@ -892,15 +892,21 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
     
     num_c = max(1, min(body.num_clips, 8))
     
-    def async_job_worker():
-        try:
-            vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR, job_id)
-            execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
-        except Exception as e:
-            logger.error(f"Job {job_id} processing failed: {e}")
-            push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+    try:
+        from modal_app import run_background_job
+        run_background_job.spawn(job_id, body.url.strip(), num_c, base)
+        logger.info(f"Spawned Modal background GPU worker for job {job_id}")
+    except Exception as me:
+        logger.warning(f"Modal spawn fallback to local background task: {me}")
+        def async_job_worker():
+            try:
+                vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR, job_id)
+                execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
+            except Exception as e:
+                logger.error(f"Job {job_id} processing failed: {e}")
+                push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+        background_tasks.add_task(async_job_worker)
 
-    background_tasks.add_task(async_job_worker)
     return {"job_id": job_id, "status": "processing"}
 
 @app.get("/api/jobs/status/{job_id}")
