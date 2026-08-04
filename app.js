@@ -306,7 +306,7 @@ async function handleYoutubeSubmit(event) {
 
     if (!url) return;
 
-    showProgress("Connecting to Modal T4 Cloud GPU...", 5);
+    showProgress("Connecting to High-Speed AI Processing Engine...", 5);
 
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
@@ -317,21 +317,21 @@ async function handleYoutubeSubmit(event) {
 
         if (!response.ok) {
             const errText = await response.text();
-            throw new Error(`Cloud server response error: ${errText}`);
+            throw new Error(`Server processing error: ${errText}`);
         }
 
         const data = await response.json();
         const jobId = data.job_id;
 
         if (!jobId) {
-            throw new Error("Invalid job response from cloud engine.");
+            throw new Error("Invalid response from processing engine.");
         }
 
         // Start polling status loop
         pollJobStatus(jobId);
 
     } catch (err) {
-        showError(err.message || "Failed to connect to Cloud AI Engine.");
+        showError(err.message || "Unable to connect to AI Processing Engine.");
     }
 }
 
@@ -341,7 +341,7 @@ async function handleFileUploadSubmit() {
     dismissError();
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
 
-    showProgress("Uploading video file to Cloud GPU...", 10);
+    showProgress("Uploading video file to Studio Engine...", 10);
 
     try {
         const formData = new FormData();
