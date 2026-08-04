@@ -116,18 +116,10 @@ async function loadBackendCapabilities() {
         if (!response.ok) return;
         const capabilities = await response.json();
         const note = document.getElementById('youtube-capability-note');
-        const samples = document.getElementById('youtube-sample-links');
-        const ytButton = document.getElementById('tab-youtube-btn');
-
         if (capabilities.youtube_link_import_enabled === false) {
             if (note) note.style.display = 'flex';
-            if (samples) samples.style.display = 'none';
-            if (ytButton) ytButton.classList.add('limited');
-            switchTab('file');
         } else {
             if (note) note.style.display = 'none';
-            if (samples) samples.style.display = 'flex';
-            if (ytButton) ytButton.classList.remove('limited');
         }
     } catch (err) {
         console.warn('Capability check failed:', err);
@@ -135,6 +127,7 @@ async function loadBackendCapabilities() {
 }
 
 window.addEventListener('DOMContentLoaded', loadBackendCapabilities);
+
 // Tab Switching
 function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -156,7 +149,8 @@ function extractYoutubeId(url) {
 }
 
 async function onUrlInputChange(event) {
-    const url = typeof event === 'string' ? event : event.target.value.trim();
+    const url = typeof event === 'string' ? event : (event && event.target ? event.target.value.trim() : '');
+    if (!url) return;
     const ytId = extractYoutubeId(url);
     const card = document.getElementById('video-ingest-card');
 
@@ -188,8 +182,13 @@ async function onUrlInputChange(event) {
 }
 
 function fillSample(url) {
-    document.getElementById('yt-url-input').value = url;
-    onUrlInputChange(url);
+    switchTab('youtube');
+    const input = document.getElementById('yt-url-input');
+    if (input) {
+        input.value = url;
+        onUrlInputChange(url);
+        goToWizardStep(2);
+    }
 }
 
 // File Dropzone Handling
