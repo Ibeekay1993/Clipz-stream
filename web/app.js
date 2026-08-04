@@ -297,6 +297,20 @@ function showProgress(stepMsg, pct) {
     document.getElementById('progress-pct').innerText = `${pct}%`;
     document.getElementById('progress-bar-fill').style.width = `${pct}%`;
 
+    // Add to AI Terminal Log
+    const term = document.getElementById('ai-terminal-log');
+    if (term) {
+        // Prevent duplicate spam if the exact same message is repeated consecutively
+        const lastLine = term.lastElementChild;
+        if (!lastLine || !lastLine.innerText.includes(stepMsg)) {
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            line.innerHTML = `<span class="term-prefix">system@lclipz:~$</span> ${stepMsg} [${pct}%]`;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight; // auto-scroll
+        }
+    }
+
     // Dynamically update Vizard level indicators
     const lvl1 = document.getElementById('vizard-lvl-1');
     const lvl2 = document.getElementById('vizard-lvl-2');
@@ -449,6 +463,8 @@ function renderResults(resultData) {
         const duration = Math.round((clip.endSec - clip.startSec) || 30);
         const scoreVizard = (viralScore / 10).toFixed(1);
 
+        const autoCaption = `Wait until you hear this! 🤯 ${escapeHtml(clipTitle)}... This is absolutely crazy. \n\n#viral #fyp #podcast #clips`;
+
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.innerHTML = `
@@ -459,10 +475,22 @@ function renderResults(resultData) {
             </div>
             <div class="clip-info" style="padding:10px;">
                 <h3 class="clip-title" style="font-size:0.88rem; font-weight:700; line-height:1.3; color:#FFF; margin-bottom:8px;">#${index + 1} ${escapeHtml(clipTitle)}</h3>
-                <div class="clip-actions">
-                    <a href="${clipUrl}" download target="_blank" class="btn-primary full-width" style="padding:8px 12px; font-size:0.8rem; border-radius:8px;">
-                        <i class="fa-solid fa-download"></i> Save MP4
+                
+                <div class="auto-caption-box" style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; margin-bottom: 12px; cursor: pointer;" onclick="navigator.clipboard.writeText('${autoCaption.replace(/\n/g, ' ')}'); alert('Caption copied!');">
+                    <div style="font-size: 0.7rem; color: var(--primary-neon); font-weight: 700; margin-bottom: 4px; display:flex; justify-content:space-between;">
+                        <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI Caption</span>
+                        <i class="fa-regular fa-copy"></i>
+                    </div>
+                    <p style="font-size: 0.75rem; color: #CCC; margin: 0; line-height: 1.4; white-space: pre-wrap;">${autoCaption}</p>
+                </div>
+
+                <div class="clip-actions" style="display:flex; gap:8px;">
+                    <a href="${clipUrl}" download target="_blank" class="btn-primary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;">
+                        <i class="fa-solid fa-download"></i> Save
                     </a>
+                    <button type="button" class="btn-secondary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;" onclick="shareClip('${escapeHtml(clipTitle)}', '${clipUrl}')">
+                        <i class="fa-brands fa-tiktok"></i> Share
+                    </button>
                 </div>
             </div>
         `;
@@ -500,4 +528,18 @@ function closeVideoModalForce() {
     player.pause();
     player.src = "";
     modal.classList.remove('active');
+}
+
+// Social Share Logic
+function shareClip(title, url) {
+    if (navigator.share) {
+        navigator.share({
+            title: title,
+            text: `Check out this viral clip: ${title}\n\n#viral #fyp #podcast`,
+            url: url
+        }).catch(err => console.warn('Share failed:', err));
+    } else {
+        navigator.clipboard.writeText(url);
+        alert('Share link copied to clipboard! Paste it on your social media.');
+    }
 }
