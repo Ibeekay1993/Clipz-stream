@@ -76,13 +76,13 @@
 
                     <!-- YouTube Input -->
                     <div class="tab-panel active" id="panel-youtube">
-                        <form class="input-group" onsubmit="goToWizardStep(2); return false;">
+                        <div class="input-group">
                             <i class="fa-solid fa-link input-icon"></i>
-                            <input type="url" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" required oninput="onUrlInputChange(event)">
-                            <button type="submit" class="btn-primary" onclick="goToWizardStep(2)">
+                            <input type="text" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" oninput="onUrlInputChange(event)" onkeydown="if(event.key==='Enter'){goToWizardStep(2);event.preventDefault();}">
+                            <button type="button" class="btn-primary" id="btn-goto-step2" onclick="goToWizardStep(2)">
                                 <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
                             </button>
-                        </form>                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
+                        </div>                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
                             <i class="fa-solid fa-circle-info"></i>
                             <span>YouTube link import requires system authorization. Upload an MP4 video file for instant 1080p clip generation.</span>
                             <button type="button" onclick="switchTab('file')">Use Upload</button>

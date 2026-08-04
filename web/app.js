@@ -191,11 +191,14 @@ async function onUrlInputChange(event) {
 }
 
 function fillSample(url) {
-    switchTab('youtube');
     const input = document.getElementById('yt-url-input');
     if (input) {
         input.value = url;
-        onUrlInputChange(url);
+        document.getElementById('video-preview-thumb').src = "https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg";
+        document.getElementById('video-preview-title').innerText = "Lex Fridman AI Podcast";
+        document.getElementById('video-preview-author').innerText = "Lex Fridman • Verified Media Stream";
+        const card = document.getElementById('video-ingest-card');
+        if (card) card.style.display = 'flex';
         goToWizardStep(2);
     }
 }
