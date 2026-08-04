@@ -422,6 +422,12 @@ function pollJobStatus(jobId) {
     pollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`);
+            
+            if (response.status === 404) {
+                clearInterval(pollingInterval);
+                showError("Processing interrupted: Job not found on server.");
+                return;
+            }
             if (!response.ok) return;
 
             const job = await response.json();
