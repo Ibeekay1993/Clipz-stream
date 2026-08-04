@@ -16,7 +16,6 @@ async function checkCapabilities() {
             if (!data.youtube_link_import_enabled) {
                 const note = document.getElementById('youtube-capability-note');
                 if (note) note.style.display = 'flex';
-                switchTab('file');
             }
         }
     } catch (e) {
@@ -26,22 +25,18 @@ async function checkCapabilities() {
 
 function goToWizardStep(stepNum) {
     if (stepNum === 2) {
-        const activeTab = document.querySelector('.tab-btn.active') ? document.querySelector('.tab-btn.active').id : 'tab-youtube-btn';
-        if (activeTab === 'tab-youtube-btn') {
-            const url = document.getElementById('yt-url-input').value.trim();
-            if (!url) {
-                alert("Please paste a valid YouTube URL first!");
-                return;
-            }
+        const urlInput = document.getElementById('yt-url-input');
+        const url = urlInput ? urlInput.value.trim() : '';
+
+        if (url) {
             onUrlInputChange(url);
-        } else if (activeTab === 'tab-file-btn') {
-            if (!selectedFile) {
-                alert("Please select or drop a video file first!");
-                return;
-            }
+        } else if (selectedFile) {
             document.getElementById('video-preview-title').innerText = selectedFile.name;
             document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024*1024)).toFixed(1)}MB`;
             document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
+        } else {
+            alert("Please paste a YouTube link or select a video file to proceed!");
+            return;
         }
     }
 
@@ -66,12 +61,16 @@ function goToWizardStep(stepNum) {
 
 function submitWizardJob() {
     goToWizardStep(3);
-    const activeTab = document.querySelector('.tab-btn.active') ? document.querySelector('.tab-btn.active').id : 'tab-youtube-btn';
-    if (activeTab === 'tab-youtube-btn') {
+    const urlInput = document.getElementById('yt-url-input');
+    const url = urlInput ? urlInput.value.trim() : '';
+
+    if (url) {
         const fakeEvent = { preventDefault: () => {} };
         handleYoutubeSubmit(fakeEvent);
-    } else {
+    } else if (selectedFile) {
         handleFileUploadSubmit();
+    } else {
+        showError("Please provide a valid YouTube link or video file.");
     }
 }
 
