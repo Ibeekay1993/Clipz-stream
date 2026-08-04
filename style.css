@@ -670,6 +670,38 @@ body {
     object-fit: contain;
 }
 
+/* YouTube Capability Warning Note */
+.youtube-capability-note {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 171, 0, 0.12);
+    border: 1px solid rgba(255, 171, 0, 0.35);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-top: 14px;
+    color: #FFD54F;
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.youtube-capability-note i {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.youtube-capability-note button {
+    margin-left: auto;
+    background: #FFB300;
+    color: #000;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
 /* Wayin & Vizard Multi-Step Wizard Styling */
 .wizard-stepper {
     display: flex;
@@ -1125,4 +1157,35 @@ body {
     justify-content: center;
     gap: 8px;
     text-decoration: none;
+}
+.youtube-capability-note {
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 185, 80, 0.35);
+    border-radius: 8px;
+    background: rgba(255, 185, 80, 0.08);
+    color: #f8d68a;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.youtube-capability-note span {
+    flex: 1;
+}
+
+.youtube-capability-note button {
+    border: 0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    background: #00ff87;
+    color: #06110c;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tab-btn.limited {
+    opacity: 0.72;
 }

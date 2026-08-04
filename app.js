@@ -4,6 +4,26 @@ const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
 let selectedFile = null;
 let currentWizardStep = 1;
 
+document.addEventListener('DOMContentLoaded', () => {
+    checkCapabilities();
+});
+
+async function checkCapabilities() {
+    try {
+        const resp = await fetch(`${MODAL_BASE_URL}/api/capabilities`);
+        if (resp.ok) {
+            const data = await resp.json();
+            if (!data.youtube_link_import_enabled) {
+                const note = document.getElementById('youtube-capability-note');
+                if (note) note.style.display = 'flex';
+                switchTab('file');
+            }
+        }
+    } catch (e) {
+        console.warn("Capabilities check skipped:", e);
+    }
+}
+
 function goToWizardStep(stepNum) {
     if (stepNum === 2) {
         const activeTab = document.querySelector('.tab-btn.active') ? document.querySelector('.tab-btn.active').id : 'tab-youtube-btn';
@@ -91,6 +111,31 @@ function switchMobileTab(tabName) {
     }
 }
 
+async function loadBackendCapabilities() {
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/capabilities`, { cache: "no-store" });
+        if (!response.ok) return;
+        const capabilities = await response.json();
+        const note = document.getElementById('youtube-capability-note');
+        const samples = document.getElementById('youtube-sample-links');
+        const ytButton = document.getElementById('tab-youtube-btn');
+
+        if (capabilities.youtube_link_import_enabled === false) {
+            if (note) note.style.display = 'flex';
+            if (samples) samples.style.display = 'none';
+            if (ytButton) ytButton.classList.add('limited');
+            switchTab('file');
+        } else {
+            if (note) note.style.display = 'none';
+            if (samples) samples.style.display = 'flex';
+            if (ytButton) ytButton.classList.remove('limited');
+        }
+    } catch (err) {
+        console.warn('Capability check failed:', err);
+    }
+}
+
+window.addEventListener('DOMContentLoaded', loadBackendCapabilities);
 // Tab Switching
 function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));

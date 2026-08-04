@@ -1170,6 +1170,15 @@ async def serve_clip(filename: str):
         raise HTTPException(404, "Clip not found")
     return FileResponse(path, media_type="video/mp4")
 
+@app.get("/api/capabilities")
+async def capabilities():
+    default_ck = os.path.join(os.path.dirname(__file__), "youtube_cookies.txt")
+    has_cookies = os.path.exists(default_ck) or bool(os.getenv("YTDLP_COOKIES_CONTENT") or os.getenv("YTDLP_PROXY") or os.getenv("YTDLP_COOKIES_FILE"))
+    return {
+        "upload_enabled": True,
+        "youtube_link_import_enabled": has_cookies,
+        "youtube_message": "YouTube link import active with cloud cookies. Upload MP4 files for direct clipping."
+    }
 @app.get("/health")
 def health():
     return {"status": "ok", "architecture": "Groq Llama-3-70B + Supabase Serverless"}

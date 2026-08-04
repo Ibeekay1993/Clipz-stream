@@ -82,12 +82,16 @@
                             <button type="button" class="btn-primary" onclick="goToWizardStep(2)">
                                 <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
                             </button>
+                        </div>                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
+                            <i class="fa-solid fa-circle-info"></i>
+                            <span>YouTube link import needs cloud cookies/proxy. Upload an MP4 for reliable clip generation.</span>
+                            <button type="button" onclick="switchTab('file')">Use Upload</button>
                         </div>
 
-                        <div class="sample-links">
+                        <div class="sample-links" id="youtube-sample-links">
                             <span>Try example link:</span>
                             <button type="button" class="sample-chip" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
-                                🎙️ Lex Fridman AI Podcast
+                                Lex Fridman AI Podcast
                             </button>
                         </div>
                     </div>
