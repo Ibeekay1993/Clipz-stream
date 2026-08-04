@@ -410,21 +410,14 @@ function pollJobStatus(jobId) {
             const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`);
             if (!response.ok) return;
 
-            const statusData = await response.json();
-
-            if (statusData.status === 'processing') {
-                const prog = statusData.progress || 10;
-                const step = statusData.current_step || "WhisperX & Llama-3 AI Processing...";
-                showProgress(step, prog);
-            } else if (statusData.status === 'completed') {
             const job = await response.json();
 
             if (job.status === 'completed') {
-                clearInterval(interval);
+                clearInterval(pollingInterval);
                 hideProgress();
                 renderResults(job.result);
             } else if (job.status === 'failed') {
-                clearInterval(interval);
+                clearInterval(pollingInterval);
                 showError(normalizeErrorMessage(job.error) || "Job processing failed.");
             } else {
                 showProgress(job.current_step || "Processing...", job.progress || 10);
