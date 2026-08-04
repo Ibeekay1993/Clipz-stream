@@ -204,52 +204,7 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     except Exception as e:
         logger.warning(f"Direct stream parse note: {e}")
 
-    # Datacenter IP Fallback: Download audio-only stream (Format 251/bestaudio) which YouTube allows without captcha
-    try:
-        logger.info("Attempting audio-only stream fallback for datacenter IP...")
-        ydl_opts_audio = {
-            'format': 'bestaudio/best',
-            'outtmpl': out_file,
-            'quiet': True,
-            'no_warnings': True,
-            'extractor_args': {'youtube': {'player_client': ['android_vr']}}
-        }
-        with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl:
-            ydl.download([url])
-        if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
-            logger.info(f"Audio-only stream fallback succeeded: {out_file}")
-            return out_file
-    except Exception as ae:
-        logger.warning(f"Audio stream fallback note: {ae}")
-
-    # Cobalt API Fallback (Bypass via third-party residential proxies)
-    try:
-        logger.info("Attempting Cobalt API residential proxy fallback...")
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        payload = {"url": url, "vCodec": "h264", "videoQuality": "1080"}
-        resp = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            dl_url = data.get("url")
-            if dl_url:
-                logger.info("Cobalt API returned direct download link. Fetching media...")
-                dl_resp = requests.get(dl_url, headers={"User-Agent": headers["User-Agent"]}, stream=True, timeout=60)
-                if dl_resp.status_code == 200:
-                    with open(out_file, "wb") as f_out:
-                        for chunk in dl_resp.iter_content(chunk_size=1024*1024):
-                            if chunk: f_out.write(chunk)
-                    if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
-                        logger.info(f"Cobalt API fallback succeeded: {out_file}")
-                        return out_file
-    except Exception as ce:
-        logger.warning(f"Cobalt API fallback note: {ce}")
-
     raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
-
 
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
@@ -359,30 +314,6 @@ def download_youtube_section(url: str, out_dir: str, start: float, end: float, i
             logger.warning(f"Full stream retry failed: {e2}")
 
     if not os.path.exists(out_file) or os.path.getsize(out_file) < 50_000:
-        logger.info("Attempting Cobalt API fallback for section download...")
-        try:
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            payload = {"url": url, "vCodec": "h264", "videoQuality": "1080"}
-            resp = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                dl_url = data.get("url")
-                if dl_url:
-                    dl_resp = requests.get(dl_url, headers={"User-Agent": headers["User-Agent"]}, stream=True, timeout=60)
-                    if dl_resp.status_code == 200:
-                        with open(out_file, "wb") as f_out:
-                            for chunk in dl_resp.iter_content(chunk_size=1024*1024):
-                                if chunk: f_out.write(chunk)
-                        if os.path.exists(out_file) and os.path.getsize(out_file) > 50_000:
-                            logger.info(f"Cobalt API fallback succeeded for section: {out_file}")
-                            return out_file
-        except Exception as ce:
-            logger.warning(f"Cobalt API fallback note for section: {ce}")
-            
         raise Exception(f"Could not download media stream for {url}")
         
     return out_file
