@@ -233,8 +233,8 @@ function setFile(file) {
 
 function normalizeErrorMessage(msg) {
     const text = String(msg || "");
-    if (text.includes("YouTube blocked cloud ingestion") || text.includes("YTDLP_COOKIES_CONTENT") || text.includes("YTDLP_PROXY")) {
-        return "YouTube is currently blocking cloud link imports for this video. Please use Upload Video File and generate clips from the MP4 directly.";
+    if (text.includes("Sign in to confirm") || text.includes("bot check")) {
+        return "YouTube media stream requires cookies. Please try another video link or use Upload Video File.";
     }
     return text;
 }

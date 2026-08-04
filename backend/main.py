@@ -147,14 +147,14 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
             yt_args['player_client'] = client_list
 
         ydl_opts = {
-            'format': '18/134+140/b/best',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'final_ext': 'mp4',
             'outtmpl': out_file,
             'quiet': True,
             'no_warnings': True,
-            'retries': 0,
-            'socket_timeout': 5,
+            'retries': 3,
+            'socket_timeout': 15,
             'progress_hooks': [_yt_progress_hook],
             'extractor_args': {
                 'youtube': yt_args
