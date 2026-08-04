@@ -9,6 +9,7 @@ import yt_dlp
 from yt_dlp.utils import download_range_func
 
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks, Body
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -221,7 +222,33 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     except Exception as ae:
         logger.warning(f"Audio stream fallback note: {ae}")
 
-    raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. Please try another link or upload a local file.")
+    # Cobalt API Fallback (Bypass via third-party residential proxies)
+    try:
+        logger.info("Attempting Cobalt API residential proxy fallback...")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        payload = {"url": url, "vCodec": "h264", "videoQuality": "1080"}
+        resp = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            dl_url = data.get("url")
+            if dl_url:
+                logger.info("Cobalt API returned direct download link. Fetching media...")
+                dl_resp = requests.get(dl_url, headers={"User-Agent": headers["User-Agent"]}, stream=True, timeout=60)
+                if dl_resp.status_code == 200:
+                    with open(out_file, "wb") as f_out:
+                        for chunk in dl_resp.iter_content(chunk_size=1024*1024):
+                            if chunk: f_out.write(chunk)
+                    if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
+                        logger.info(f"Cobalt API fallback succeeded: {out_file}")
+                        return out_file
+    except Exception as ce:
+        logger.warning(f"Cobalt API fallback note: {ce}")
+
+    raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
 
 
 def is_youtube_url(url: str) -> bool:
@@ -758,6 +785,8 @@ Return ONLY a JSON object with key "clips". Each clip must have:
             return []
     except Exception as e:
         logger.error(f"Gemini Flash analysis error: {e}")
+        return []
+
 def llama_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     """Call Groq Llama-3-70B to score clips and write catchy viral headlines"""
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -800,7 +829,7 @@ def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
         logger.info("Delegating chunk selection to Google Gemini 2.0 Flash...")
         clips = gemini_analyze_chunks(chunks, n)
 
-    return clips
+    return clips or []
 
 # Persistent Job Tracking
 JOBS = {}
@@ -1106,8 +1135,8 @@ async def process_video_api(body: ProcessRequest, request: Request):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/")
     try:
-        vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR)
-        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
+        vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
+        return await run_in_threadpool(run_pipeline, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
@@ -1159,7 +1188,7 @@ async def upload_video_api(request: Request, file: UploadFile = File(...), num_c
     try:
         with open(vpath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return await run_pipeline(vpath, file.filename, max(1, min(num_clips, 8)), base)
+        return await run_in_threadpool(run_pipeline, vpath, file.filename, max(1, min(num_clips, 8)), base)
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(500, str(e))
