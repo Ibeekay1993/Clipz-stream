@@ -1160,6 +1160,11 @@ async def upload_video_api(request: Request, file: UploadFile = File(...), num_c
 
 @app.get("/clips/{filename}")
 async def serve_clip(filename: str):
+    if modal_volume:
+        try:
+            modal_volume.reload()
+        except Exception as ve:
+            logger.warning(f"Modal volume reload note before serving clip: {ve}")
     path = os.path.join(CLIPS_DIR, filename)
     if not os.path.exists(path):
         raise HTTPException(404, "Clip not found")
