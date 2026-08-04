@@ -29,7 +29,11 @@ function goToWizardStep(stepNum) {
         const url = urlInput ? urlInput.value.trim() : '';
 
         if (url) {
-            onUrlInputChange(url);
+            try {
+                onUrlInputChange(url);
+            } catch (e) {
+                console.warn(e);
+            }
         } else if (selectedFile) {
             document.getElementById('video-preview-title').innerText = selectedFile.name;
             document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024*1024)).toFixed(1)}MB`;
@@ -53,10 +57,15 @@ function goToWizardStep(stepNum) {
     document.querySelectorAll('.wizard-panel').forEach((panel, idx) => {
         if (idx + 1 === stepNum) {
             panel.classList.add('active');
+            panel.style.display = 'block';
         } else {
             panel.classList.remove('active');
+            panel.style.display = 'none';
         }
     });
+
+    const clipper = document.getElementById('clipper');
+    if (clipper) clipper.scrollIntoView({ behavior: 'smooth' });
 }
 
 function submitWizardJob() {
