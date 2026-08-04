@@ -186,6 +186,13 @@ function setFile(file) {
     document.getElementById('file-action-container').style.display = 'block';
 }
 
+function normalizeErrorMessage(msg) {
+    const text = String(msg || "");
+    if (text.includes("YouTube blocked cloud ingestion") || text.includes("YTDLP_COOKIES_CONTENT") || text.includes("YTDLP_PROXY")) {
+        return "YouTube is currently blocking cloud link imports for this video. Please use Upload Video File and generate clips from the MP4 directly.";
+    }
+    return text;
+}
 // Progress & Error Utilities
 function showProgress(stepMsg, pct) {
     document.getElementById('progress-card').style.display = 'flex';
@@ -202,7 +209,7 @@ function hideProgress() {
 function showError(msg) {
     hideProgress();
     document.getElementById('error-card').style.display = 'flex';
-    document.getElementById('error-message').innerText = msg;
+    document.getElementById('error-message').innerText = normalizeErrorMessage(msg);
 }
 
 function dismissError() {

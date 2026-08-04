@@ -59,8 +59,7 @@ def run_background_job(job_id: str, url: str, num_clips: int, base_url: str):
     main_mod.modal_volume = volume
     
     try:
-        vpath = main_mod.download_video_ingest(url, main_mod.RAW_UPLOADS_DIR, job_id)
-        main_mod.execute_job_bg(job_id, vpath, url, num_clips, base_url)
+        main_mod.execute_url_job_bg(job_id, url, num_clips, base_url)
     except Exception as e:
         main_mod.logger.error(f"Background Modal job {job_id} failed: {e}")
         main_mod.push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))

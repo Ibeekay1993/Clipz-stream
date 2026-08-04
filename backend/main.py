@@ -6,6 +6,7 @@ from enum import Enum
 import threading
 import logging
 import yt_dlp
+from yt_dlp.utils import download_range_func
 
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +27,7 @@ logger = logging.getLogger("backend_core")
 app = FastAPI(title="Clipz-Stream Backend (Groq + Supabase Architecture)")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# ── Storage Configuration ──────────────────────────────────────────────────
+# Storage Configuration
 _STORAGE_ROOT = os.getenv("CLIPZ_STORAGE_DIR")
 if not _STORAGE_ROOT and os.path.exists("/root/storage"):
     _STORAGE_ROOT = "/root/storage"
@@ -222,6 +223,108 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
 
     raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. Please try another link or upload a local file.")
 
+
+def is_youtube_url(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url
+
+
+def extract_youtube_id(url: str) -> Optional[str]:
+    match = re.search(r'(?:v=|youtu\.be/|/shorts/|/embed/)([0-9A-Za-z_-]{11})', url)
+    return match.group(1) if match else None
+
+
+def fetch_youtube_transcript_words(url_or_id: str) -> List[dict]:
+    """Fetch YouTube captions as approximate word timestamps without downloading media."""
+    video_id = url_or_id if re.fullmatch(r"[0-9A-Za-z_-]{11}", url_or_id) else extract_youtube_id(url_or_id)
+    if not video_id:
+        return []
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id)
+        words: List[dict] = []
+
+        for item in transcript:
+            if isinstance(item, dict):
+                start = float(item.get("start", 0.0) or 0.0)
+                duration = float(item.get("duration", 2.0) or 2.0)
+                text = str(item.get("text", "") or "")
+            else:
+                start = float(getattr(item, "start", 0.0) or 0.0)
+                duration = float(getattr(item, "duration", 2.0) or 2.0)
+                text = str(getattr(item, "text", "") or "")
+
+            parts = [p for p in re.split(r"\s+", text.replace("\n", " ").strip()) if p]
+            if not parts:
+                continue
+
+            start_ms = int(start * 1000)
+            duration_ms = max(100, int(duration * 1000))
+            per_word = max(80, duration_ms // len(parts))
+
+            for idx, word in enumerate(parts):
+                word_start = start_ms + (idx * per_word)
+                words.append({"word": word, "startMs": word_start, "endMs": word_start + per_word})
+
+        return words
+    except Exception as e:
+        logger.warning(f"YouTubeTranscriptApi transcript fetch failed for {video_id}: {e}")
+        return []
+
+
+def download_youtube_section(url: str, out_dir: str, start: float, end: float, index: int, job_id: str = None) -> str:
+    """Download only the selected YouTube time window to avoid full podcast downloads."""
+    os.makedirs(out_dir, exist_ok=True)
+    section_start = max(0.0, start)
+    section_end = max(section_start + 3.0, end)
+    out_file = os.path.join(out_dir, f"yt_section_{uuid.uuid4().hex[:8]}_{index}.mp4")
+    cookiefile = _cookiefile_path()
+    po_token = os.getenv("YTDLP_PO_TOKEN")
+    proxy = os.getenv("YTDLP_PROXY")
+    yt_args = {"player_client": ["android_vr", "android", "mweb"]}
+    if po_token:
+        yt_args["po_token"] = [po_token]
+
+    def _section_progress_hook(d):
+        if d.get("status") == "downloading" and job_id:
+            total_b = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded_b = d.get("downloaded_bytes") or 0
+            if total_b > 0:
+                pct = int((downloaded_b / total_b) * 100)
+                push_job_update(
+                    job_id,
+                    progress=35 + min(20, pct // 5),
+                    current_step=f"Downloading selected clip window {index + 1} ({pct}%)..."
+                )
+
+    ydl_opts = {
+        "format": "18/best[ext=mp4][height<=480]/best[height<=480]/best",
+        "merge_output_format": "mp4",
+        "final_ext": "mp4",
+        "outtmpl": out_file,
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 1,
+        "socket_timeout": 20,
+        "download_ranges": download_range_func(None, [(section_start, section_end)]),
+        "force_keyframes_at_cuts": True,
+        "progress_hooks": [_section_progress_hook],
+        "extractor_args": {"youtube": yt_args},
+    }
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
+    if proxy:
+        ydl_opts["proxy"] = proxy
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+    if not os.path.exists(out_file) or os.path.getsize(out_file) < 50_000:
+        raise Exception("Could not download the selected YouTube section.")
+    return out_file
+
 # ============================================================================
 # TIER 2: AI PROCESSING ENGINE (GROQ)
 # ============================================================================
@@ -366,7 +469,7 @@ def score(c: Chunk) -> Chunk:
     
     T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
     for pat, h, p in T1:
-        if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook — {h.value}"); break
+        if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook - {h.value}"); break
         
     c.score = min(99, max(50, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = True
     return c
@@ -689,7 +792,7 @@ def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
 
     return clips
 
-# ── Persistent Job Tracking ────────────────────────────────────────────────
+# Persistent Job Tracking
 JOBS = {}
 modal_background_job_fn = None
 modal_volume = None
@@ -830,7 +933,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 
             off = chunk.words[0]["startMs"]
             captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
-            t_clean = title_text if title_text.startswith("🔥") or title_text.startswith("⚡") else f"🔥 {title_text}"
+            t_clean = title_text
             return i, {
                 "title": t_clean, "startSec": int(chunk.start), "endSec": int(chunk.end),
                 "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
@@ -854,6 +957,132 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     logger.info(f"Pipeline completed successfully. Generated {len(clips_out)} viable clips.")
     update_job(100, "Complete")
     return result
+
+async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job_id: str = None) -> dict:
+    """Fast path for captioned YouTube videos: score captions first, then download only selected windows."""
+    def update_job(prog: int, step: str):
+        if job_id:
+            push_job_update(job_id, prog, step)
+
+    update_job(8, "Fetching YouTube captions before downloading media...")
+    words = fetch_youtube_transcript_words(url)
+    if not words:
+        raise Exception("No YouTube captions were available for transcript-first processing.")
+
+    chunks = semantic_chunks(words)
+    if not chunks:
+        duration = max(30.0, words[-1]["endMs"] / 1000.0)
+        chunks = []
+        clip_count = max(1, min(n, 8))
+        clip_len = min(35.0, max(12.0, duration / clip_count))
+        for i in range(clip_count):
+            start = i * clip_len
+            end = min(start + clip_len, duration)
+            clip_words = [w for w in words if start <= (w.get("startMs", 0) / 1000.0) <= end]
+            if not clip_words:
+                continue
+            text = " ".join(w["word"] for w in clip_words)
+            chunks.append(Chunk(start=start, end=end, text=text, words=clip_words, score=80, viable=True))
+    if not chunks:
+        raise Exception("Could not form caption-based clip segments.")
+
+    update_job(18, "Scoring caption segments for viral moments...")
+    try:
+        ai_analysis = orchestrate_multi_ai_pipeline(chunks, n)
+    except Exception as ae:
+        logger.warning(f"Caption-first AI clip analysis unavailable, using heuristic scoring: {ae}")
+        ai_analysis = []
+
+    chosen_chunks = []
+    if ai_analysis:
+        for la in ai_analysis:
+            cid = la.get("chunk_id", 0)
+            if 0 <= cid < len(chunks):
+                c = chunks[cid]
+                c.score = la.get("viralScore", 85)
+                c.hook = la.get("hookType", "General")
+                c.reasons = [la.get("viralReason", "High-engagement viral hook")]
+                chosen_chunks.append((c, la.get("title", c.title())))
+
+    if not chosen_chunks:
+        scored = [score(c) for c in chunks]
+        chosen_chunks = [(c, c.title()) for c in select(scored, n)]
+
+    if not chosen_chunks:
+        raise Exception("No viable caption segments selected.")
+
+    clips_out = []
+    for i, (chunk, title_text) in enumerate(chosen_chunks):
+        update_job(30 + int((i / max(1, len(chosen_chunks))) * 55), f"Downloading selected clip window {i + 1} of {len(chosen_chunks)}...")
+        section_start = max(0.0, chunk.start - 2.0)
+        section_end = chunk.end + 2.0
+        section_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i, job_id)
+
+        adjusted_words = []
+        for w in chunk.words:
+            adjusted_words.append({
+                "word": w["word"],
+                "startMs": max(0, int(w["startMs"] - (section_start * 1000))),
+                "endMs": max(80, int(w["endMs"] - (section_start * 1000))),
+            })
+
+        fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
+        fpath = os.path.join(CLIPS_DIR, fname)
+        local_start = max(0.0, chunk.start - section_start)
+        local_end = max(local_start + 3.0, chunk.end - section_start)
+        clip_url = transcode_and_upload(section_path, local_start, local_end, fpath, words=adjusted_words)
+        if clip_url.startswith("/clips/"):
+            clip_url = f"{base}{clip_url}"
+
+        captions = [{"word": w["word"], "startMs": w["startMs"], "endMs": w["endMs"]} for w in adjusted_words]
+        clips_out.append({
+            "title": title_text,
+            "startSec": int(chunk.start),
+            "endSec": int(chunk.end),
+            "viralScore": chunk.score or 85,
+            "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement caption segment",
+            "captions": captions,
+            "clipUrl": clip_url,
+            "clip_url": clip_url,
+            "hookType": chunk.hook,
+            "allReasons": chunk.reasons,
+            "durationSec": round(chunk.duration, 1),
+        })
+
+    update_job(100, "Complete")
+    return {"url": url, "duration": words[-1]["endMs"] / 1000.0, "clips": clips_out}
+
+
+def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
+    try:
+        if is_youtube_url(url):
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                res = loop.run_until_complete(run_youtube_transcript_first_pipeline(url, n, base, job_id))
+                push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
+                return
+            except Exception as fast_err:
+                logger.warning(f"Transcript-first YouTube pipeline failed; trying bounded section fallback: {fast_err}")
+                push_job_update(job_id, progress=6, current_step="YouTube captions are blocked; trying a short media section instead...")
+
+            try:
+                section_path = download_youtube_section(url, RAW_UPLOADS_DIR, 0.0, 90.0, 0, job_id)
+                execute_job_bg(job_id, section_path, url, n, base)
+                return
+            except Exception as section_err:
+                logger.warning(f"Bounded YouTube section fallback failed: {section_err}")
+                raise Exception(
+                    "YouTube blocked cloud ingestion for this link. Please upload the video file directly, "
+                    "or configure fresh YTDLP_COOKIES_CONTENT / YTDLP_PROXY in Modal secrets."
+                )
+
+        vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
+        execute_job_bg(job_id, vpath, url, n, base)
+    except Exception as e:
+        logger.error(f"URL job {job_id} failed: {e}")
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
 def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str):
     try:
@@ -892,20 +1121,11 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
     
     num_c = max(1, min(body.num_clips, 8))
     
-    try:
-        from modal_app import run_background_job
-        run_background_job.spawn(job_id, body.url.strip(), num_c, base)
-        logger.info(f"Spawned Modal background GPU worker for job {job_id}")
-    except Exception as me:
-        logger.warning(f"Modal spawn fallback to local background task: {me}")
-        def async_job_worker():
-            try:
-                vpath = download_video_ingest(body.url.strip(), RAW_UPLOADS_DIR, job_id)
-                execute_job_bg(job_id, vpath, body.url.strip(), num_c, base)
-            except Exception as e:
-                logger.error(f"Job {job_id} processing failed: {e}")
-                push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
-        background_tasks.add_task(async_job_worker)
+    def async_job_worker():
+        execute_url_job_bg(job_id, body.url.strip(), num_c, base)
+
+    background_tasks.add_task(async_job_worker)
+    logger.info(f"Queued FastAPI background processing task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
 
@@ -986,6 +1206,3 @@ try:
         return app
 except Exception:
     pass
-
-
-
