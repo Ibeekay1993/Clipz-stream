@@ -383,20 +383,25 @@ function pollJobStatus(jobId) {
                 const step = statusData.current_step || "WhisperX & Llama-3 AI Processing...";
                 showProgress(step, prog);
             } else if (statusData.status === 'completed') {
-                clearInterval(pollingInterval);
+            const job = await response.json();
+
+            if (job.status === 'completed') {
+                clearInterval(interval);
                 hideProgress();
-                renderResults(statusData.result);
-            } else if (statusData.status === 'failed') {
-                clearInterval(pollingInterval);
-                showError(statusData.error || "Video clipping pipeline failed.");
+                renderResults(job.result);
+            } else if (job.status === 'failed') {
+                clearInterval(interval);
+                showError(normalizeErrorMessage(job.error) || "Job processing failed.");
+            } else {
+                showProgress(job.current_step || "Processing...", job.progress || 10);
             }
-        } catch (err) {
-            console.warn("Polling error:", err);
+        } catch (e) {
+            console.warn("Polling error:", e);
         }
-    }, 2000);
+    }, 2500);
 }
 
-// Render Results Grid
+// Render Clips Gallery Results (Vizard.ai Card Design)
 function renderResults(resultData) {
     const resultsSection = document.getElementById('results-section');
     const clipsGrid = document.getElementById('clips-grid');
@@ -415,20 +420,21 @@ function renderResults(resultData) {
         const viralScore = clip.viralScore || 95;
         const clipTitle = clip.title || `Viral Clip #${index + 1}`;
         const duration = Math.round((clip.endSec - clip.startSec) || 30);
+        const scoreVizard = (viralScore / 10).toFixed(1);
 
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.innerHTML = `
-            <div class="clip-thumb">
-                <video src="${clipUrl}" playsinline controls preload="metadata" style="width:100%; height:100%; object-fit:cover; border-radius:12px;"></video>
-                <div class="score-badge">🔥 ${viralScore}/100</div>
+            <div class="clip-thumb" onclick="openVideoModal('${clipUrl}', '${escapeHtml(clipTitle)}', '${duration}s • 9:16 Vertical format')">
+                <video src="${clipUrl}" playsinline preload="metadata" style="width:100%; height:100%; object-fit:cover; border-radius:12px;"></video>
+                <div class="score-badge-vizard" style="position:absolute; top:8px; left:8px; background:rgba(120,40,230,0.9); color:#FFF; font-weight:800; font-size:0.75rem; padding:4px 8px; border-radius:14px;">✦ ${scoreVizard}</div>
+                <div class="duration-badge-vizard" style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.8); color:#FFF; font-weight:700; font-size:0.7rem; padding:2px 6px; border-radius:4px;">00:${duration < 10 ? '0' + duration : duration}</div>
             </div>
-            <div class="clip-info">
-                <h3 class="clip-title">${escapeHtml(clipTitle)}</h3>
-                <p class="clip-meta"><i class="fa-regular fa-clock"></i> ${duration}s • 9:16 Vertical format</p>
+            <div class="clip-info" style="padding:10px;">
+                <h3 class="clip-title" style="font-size:0.88rem; font-weight:700; line-height:1.3; color:#FFF; margin-bottom:8px;">#${index + 1} ${escapeHtml(clipTitle)}</h3>
                 <div class="clip-actions">
-                    <a href="${clipUrl}" download target="_blank" class="btn-primary full-width">
-                        <i class="fa-solid fa-download"></i> Download Video MP4
+                    <a href="${clipUrl}" download target="_blank" class="btn-primary full-width" style="padding:8px 12px; font-size:0.8rem; border-radius:8px;">
+                        <i class="fa-solid fa-download"></i> Save MP4
                     </a>
                 </div>
             </div>

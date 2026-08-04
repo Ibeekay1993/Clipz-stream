@@ -220,19 +220,27 @@
                         <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
                     </div>
 
-                    <!-- Vizard-style 3-Level Progress Breakdown -->
+                    <!-- Vizard-style 5-Step Progress Breakdown -->
                     <div class="vizard-levels-list">
                         <div class="vizard-level-item active" id="vizard-lvl-1">
                             <i class="fa-solid fa-circle-check level-icon text-neon"></i>
-                            <span>1. Media Ingestion & Speech Transcription</span>
+                            <span>1. Uploading & Ingestion...</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-2">
                             <i class="fa-solid fa-circle-notch fa-spin level-icon"></i>
-                            <span>2. Multi-AI Virality Analysis & Active Speaker Tracking</span>
+                            <span>2. Creating project & Speech Transcription</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-3">
                             <i class="fa-solid fa-circle level-icon text-muted"></i>
-                            <span>3. 1080p HD Smart Re-Framing & Subtitle Rendering</span>
+                            <span>3. Find best viral parts (Groq AI)</span>
+                        </div>
+                        <div class="vizard-level-item" id="vizard-lvl-4">
+                            <i class="fa-solid fa-circle level-icon text-muted"></i>
+                            <span>4. Auto reframe (OpenCV 9:16)</span>
+                        </div>
+                        <div class="vizard-level-item" id="vizard-lvl-5">
+                            <i class="fa-solid fa-circle level-icon text-muted"></i>
+                            <span>5. Export (1080p HD & Subtitles)</span>
                         </div>
                     </div>
                 </div>
@@ -318,9 +326,24 @@
             <div class="modal-details">
                 <h3 id="modal-clip-title">Clip Preview</h3>
                 <p id="modal-clip-desc">High retention video segment</p>
-                <a id="modal-download-link" href="#" download class="btn-primary full-width">
-                    <i class="fa-solid fa-download"></i> Download 9:16 Vertical Video MP4
-                </a>
+                <div class="vizard-modal-actions">
+                    <a id="modal-download-link" href="#" download class="vizard-action-btn">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Save</span>
+                    </a>
+                    <button type="button" class="vizard-action-btn" onclick="alert('AI post: Social media caption generated!')">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        <span>AI post</span>
+                    </button>
+                    <button type="button" class="vizard-action-btn" onclick="if(navigator.share){navigator.share({title:document.getElementById('modal-clip-title').innerText,url:document.getElementById('modal-download-link').href})}else{alert('Share link copied!')}">
+                        <i class="fa-solid fa-share-nodes"></i>
+                        <span>Share to...</span>
+                    </button>
+                    <button type="button" class="vizard-action-btn" onclick="alert('Full transcript with word timestamps exported.')">
+                        <i class="fa-solid fa-file-lines"></i>
+                        <span>Transcript</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

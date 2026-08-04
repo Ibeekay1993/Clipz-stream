@@ -1365,3 +1365,38 @@ body {
         text-align: center !important;
     }
 }
+
+.vizard-modal-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.vizard-action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 10px 4px;
+    color: #FFF;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.vizard-action-btn:hover {
+    background: rgba(0, 255, 135, 0.15);
+    border-color: var(--primary-neon);
+    color: var(--primary-neon);
+}
+
+.vizard-action-btn i {
+    font-size: 1.1rem;
+}
