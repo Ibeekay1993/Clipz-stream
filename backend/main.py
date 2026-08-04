@@ -300,13 +300,13 @@ def download_youtube_section(url: str, out_dir: str, start: float, end: float, i
                 )
 
     ydl_opts = {
-        "format": "18/best[ext=mp4][height<=480]/best[height<=480]/best",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "final_ext": "mp4",
         "outtmpl": out_file,
         "quiet": True,
         "no_warnings": True,
-        "retries": 1,
+        "retries": 3,
         "socket_timeout": 20,
         "download_ranges": download_range_func(None, [(section_start, section_end)]),
         "force_keyframes_at_cuts": True,
@@ -318,11 +318,21 @@ def download_youtube_section(url: str, out_dir: str, start: float, end: float, i
     if proxy:
         ydl_opts["proxy"] = proxy
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as section_err:
+        logger.warning(f"download_ranges failed ({section_err}), retrying full stream download fallback...")
+        ydl_opts.pop("download_ranges", None)
+        ydl_opts.pop("force_keyframes_at_cuts", None)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as e2:
+            logger.warning(f"Full stream retry failed: {e2}")
 
     if not os.path.exists(out_file) or os.path.getsize(out_file) < 50_000:
-        raise Exception("Could not download the selected YouTube section.")
+        raise Exception(f"Could not download media stream for {url}")
     return out_file
 
 # ============================================================================
@@ -1072,11 +1082,7 @@ def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
                 execute_job_bg(job_id, section_path, url, n, base)
                 return
             except Exception as section_err:
-                logger.warning(f"Bounded YouTube section fallback failed: {section_err}")
-                raise Exception(
-                    "YouTube blocked cloud ingestion for this link. Please upload the video file directly, "
-                    "or configure fresh YTDLP_COOKIES_CONTENT / YTDLP_PROXY in Modal secrets."
-                )
+                logger.warning(f"Bounded YouTube section fallback failed: {section_err}, trying full video ingest...")
 
         vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
         execute_job_bg(job_id, vpath, url, n, base)
