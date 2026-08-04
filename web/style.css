@@ -264,6 +264,15 @@ body {
     align-items: center;
     gap: 12px;
     transition: border-color 0.2s;
+    position: relative;
+    z-index: 10;
+}
+
+.input-group button.btn-primary {
+    position: relative;
+    z-index: 20;
+    cursor: pointer !important;
+    pointer-events: auto !important;
 }
 
 .input-group:focus-within {

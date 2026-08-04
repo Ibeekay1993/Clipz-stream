@@ -6,6 +6,24 @@ let currentWizardStep = 1;
 
 document.addEventListener('DOMContentLoaded', () => {
     checkCapabilities();
+
+    const btnNext = document.getElementById('btn-goto-step2');
+    if (btnNext) {
+        btnNext.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            goToWizardStep(2);
+        });
+    }
+
+    const sampleBtn = document.getElementById('btn-sample-lex');
+    if (sampleBtn) {
+        sampleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w');
+        });
+    }
 });
 
 async function checkCapabilities() {
