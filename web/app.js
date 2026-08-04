@@ -238,13 +238,49 @@ function normalizeErrorMessage(msg) {
     }
     return text;
 }
+
+let burnCaptionsEnabled = true;
+
+function toggleCaptions(enabled) {
+    burnCaptionsEnabled = enabled;
+    const btnOn = document.getElementById('btn-captions-on');
+    const btnOff = document.getElementById('btn-captions-off');
+    if (enabled) {
+        if (btnOn) btnOn.classList.add('active');
+        if (btnOff) btnOff.classList.remove('active');
+    } else {
+        if (btnOn) btnOn.classList.remove('active');
+        if (btnOff) btnOff.classList.add('active');
+    }
+}
+
 // Progress & Error Utilities
 function showProgress(stepMsg, pct) {
-    document.getElementById('progress-card').style.display = 'flex';
+    document.getElementById('progress-card').style.display = 'block';
     document.getElementById('error-card').style.display = 'none';
+    document.getElementById('results-section').style.display = 'none';
     document.getElementById('progress-step').innerText = stepMsg;
     document.getElementById('progress-pct').innerText = `${pct}%`;
     document.getElementById('progress-bar-fill').style.width = `${pct}%`;
+
+    // Dynamically update Vizard level indicators
+    const lvl1 = document.getElementById('vizard-lvl-1');
+    const lvl2 = document.getElementById('vizard-lvl-2');
+    const lvl3 = document.getElementById('vizard-lvl-3');
+
+    if (pct < 35) {
+        if (lvl1) lvl1.className = "vizard-level-item active";
+        if (lvl2) lvl2.className = "vizard-level-item";
+        if (lvl3) lvl3.className = "vizard-level-item";
+    } else if (pct < 65) {
+        if (lvl1) lvl1.className = "vizard-level-item active";
+        if (lvl2) lvl2.className = "vizard-level-item active";
+        if (lvl3) lvl3.className = "vizard-level-item";
+    } else {
+        if (lvl1) lvl1.className = "vizard-level-item active";
+        if (lvl2) lvl2.className = "vizard-level-item active";
+        if (lvl3) lvl3.className = "vizard-level-item active";
+    }
 }
 
 function hideProgress() {
@@ -263,7 +299,7 @@ function dismissError() {
 
 // YouTube Form Submission
 async function handleYoutubeSubmit(event) {
-    event.preventDefault();
+    if (event && event.preventDefault) event.preventDefault();
     dismissError();
     const url = document.getElementById('yt-url-input').value.trim();
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
@@ -276,7 +312,7 @@ async function handleYoutubeSubmit(event) {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url, num_clips: numClips })
+            body: JSON.stringify({ url: url, num_clips: numClips, burn_captions: burnCaptionsEnabled })
         });
 
         if (!response.ok) {

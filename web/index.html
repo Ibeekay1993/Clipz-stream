@@ -134,6 +134,19 @@
 
                     <!-- Commercial Style Customization Controls -->
                     <div class="preset-controls-grid">
+                        <!-- Subtitles ON / OFF Toggle -->
+                        <div class="control-box">
+                            <label><i class="fa-solid fa-toggle-on text-neon"></i> Subtitles Overlay</label>
+                            <div class="preset-chips" id="captions-toggle-chips">
+                                <button type="button" class="chip-option active" id="btn-captions-on" onclick="toggleCaptions(true)">
+                                    ✨ Subtitles ON
+                                </button>
+                                <button type="button" class="chip-option" id="btn-captions-off" onclick="toggleCaptions(false)">
+                                    🚫 No Subtitles (Clean)
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Captions Style Selector -->
                         <div class="control-box">
                             <label><i class="fa-solid fa-closed-captioning text-neon"></i> Subtitle Style Preset</label>
@@ -190,6 +203,61 @@
                 </div>
             </div>
 
+            <!-- STEP 3: CLIPS RESULTS & PROGRESS PANEL -->
+            <div class="wizard-panel" id="wizard-step-3">
+                <!-- Vizard-style Rich Progress Tracker Card -->
+                <div class="progress-card" id="progress-card" style="display: none;">
+                    <div class="progress-header">
+                        <div class="spinner-ring"></div>
+                        <div class="progress-info">
+                            <h3 id="progress-step">Processing Multi-AI Engine Pipeline...</h3>
+                            <p class="progress-sub">Downloading, transcribing, and rendering 1080p HD clips in parallel.</p>
+                        </div>
+                        <div class="progress-percentage" id="progress-pct">0%</div>
+                    </div>
+
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+
+                    <!-- Vizard-style 3-Level Progress Breakdown -->
+                    <div class="vizard-levels-list">
+                        <div class="vizard-level-item active" id="vizard-lvl-1">
+                            <i class="fa-solid fa-circle-check level-icon text-neon"></i>
+                            <span>1. Media Ingestion & Speech Transcription</span>
+                        </div>
+                        <div class="vizard-level-item" id="vizard-lvl-2">
+                            <i class="fa-solid fa-circle-notch fa-spin level-icon"></i>
+                            <span>2. Multi-AI Virality Analysis & Active Speaker Tracking</span>
+                        </div>
+                        <div class="vizard-level-item" id="vizard-lvl-3">
+                            <i class="fa-solid fa-circle level-icon text-muted"></i>
+                            <span>3. 1080p HD FFmpeg Rendering & Subtitle Burn-in</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Monitor Card -->
+                <div class="error-card" id="error-card" style="display: none;">
+                    <i class="fa-solid fa-triangle-exclamation error-icon"></i>
+                    <div class="error-info">
+                        <h3>Processing Notice</h3>
+                        <p id="error-message">Unable to process video.</p>
+                    </div>
+                    <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <!-- Results Gallery Section -->
+                <section class="results-section" id="results-section" style="display: none;">
+                    <div class="results-header">
+                        <h2><i class="fa-solid fa-fire text-neon"></i> Generated Viral Shorts</h2>
+                        <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
+                    </div>
+                    <div class="clips-grid" id="clips-grid">
+                        <!-- Clip cards dynamically rendered here -->
+                    </div>
+                </section>
+            </div>
 
             <section class="app-update-panel" id="android-update">
                 <div class="app-update-copy">

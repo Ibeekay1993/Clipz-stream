@@ -487,16 +487,16 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     return sel
 
 def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str):
-    """Generates an ASS subtitle file with OpusClip-style active word highlighting, pop animation, and heavy stroke outline"""
+    """Generates an ASS subtitle file with OpusClip/Vizard clean typography and neon green active word highlighting"""
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
+PlayResX: 1080
+PlayResY: 1920
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,58,&H00FFFFFF,&H0000FF00,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,7,3,2,34,34,180,1
+Style: Default,Arial,42,&H00FFFFFF,&H0000FF00,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,50,50,140,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -536,7 +536,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if not word_str:
                     continue
                 if j == idx:
-                    formatted_words.append(f"{{\\c&H0000FF00&\\fscx118\\fscy118}}{word_str}{{\\r}}")
+                    formatted_words.append(f"{{\\c&H0000FF00&}}{word_str}{{\\r}}")
                 else:
                     formatted_words.append(f"{{\\c&H00FFFFFF&}}{word_str}")
             
@@ -851,7 +851,7 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
         except Exception as e:
             logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
 
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None) -> dict:
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None, burn_captions: bool = True) -> dict:
     def update_job(prog: int, step: str):
         if job_id:
             push_job_update(job_id, prog, step)
@@ -916,7 +916,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         chosen = select(scored, n)
         chosen_chunks = [(c, c.title()) for c in chosen]
 
-    update_job(60, "FFmpeg 9:16 Safe Crop & Supabase CDN Transcoding...")
+    update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
     logger.info("Transcoding and uploading clips in parallel...")
     clips_out = [None] * len(chosen_chunks)
 
@@ -927,7 +927,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
         try:
-            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words)
+            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words, burn_captions=burn_captions)
             if clip_url.startswith("/clips/"):
                 clip_url = f"{base}{clip_url}"
                 
