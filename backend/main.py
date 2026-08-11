@@ -1078,7 +1078,7 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
     
     import sys
     current_module = sys.modules[__name__]
-    if hasattr(current_module, 'modal_background_job_fn'):
+    if hasattr(current_module, 'modal_background_job_fn') and getattr(current_module, 'modal_background_job_fn') is not None:
         # Spawn the Modal background function so it runs asynchronously on the cluster
         current_module.modal_background_job_fn.spawn(job_id, body.url.strip(), num_c, base)
         logger.info(f"Queued Modal background function for job {job_id}")
@@ -1160,7 +1160,7 @@ try:
         .apt_install("ffmpeg")
         .pip_install("fastapi", "yt-dlp", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless")
     )
-    modal_app = modal.App("clipz-stream-fastapi-app")
+    modal_app = modal.App("clipz-stream")
     
     secret_dict = {}
     if os.getenv("GROQ_API_KEY"):
