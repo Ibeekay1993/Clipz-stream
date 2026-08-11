@@ -476,8 +476,43 @@ body {
 }
 
 .error-icon {
-    font-size: 1.5rem;
-    color: var(--accent-red);
+    font-size: 2rem;
+    color: #ff4757;
+}
+
+/* ----------------------------------
+   Vizard Killer Editor Suite Styles
+---------------------------------- */
+.transcript-word {
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: inline-block;
+    margin: 2px;
+}
+.transcript-word:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+}
+
+.editor-tab:hover {
+    color: #fff !important;
+}
+
+/* Add custom scrollbar for transcript */
+.transcript-container::-webkit-scrollbar {
+    width: 8px;
+}
+.transcript-container::-webkit-scrollbar-track {
+    background: #111;
+}
+.transcript-container::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+.transcript-container::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-neon);
 }
 
 .error-info {

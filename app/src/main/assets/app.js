@@ -466,6 +466,7 @@ function renderResults(resultData) {
     }
 
     document.getElementById('clips-total-badge').innerText = `${resultData.clips.length} Clips Ready`;
+    window.currentClips = resultData.clips;
 
     resultData.clips.forEach((clip, index) => {
         const rawClipUrl = clip.clipUrl || clip.clip_url || '';
@@ -489,7 +490,7 @@ function renderResults(resultData) {
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.innerHTML = `
-            <div class="clip-thumb" onclick="openVideoModal('${clipUrl}', '${escapeHtml(clipTitle)}', '${duration}s • 9:16 Vertical format')">
+            <div class="clip-thumb" onclick="openVideoModal(${index})">
                 <video src="${clipUrl}" playsinline preload="metadata" style="width:100%; height:100%; object-fit:cover; border-radius:12px;"></video>
                 <div class="score-badge-vizard" style="position:absolute; top:8px; left:8px; background:rgba(120,40,230,0.9); color:#FFF; font-weight:800; font-size:0.75rem; padding:4px 8px; border-radius:14px;">✦ ${scoreVizard}</div>
                 <div class="duration-badge-vizard" style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.8); color:#FFF; font-weight:700; font-size:0.7rem; padding:2px 6px; border-radius:4px;">00:${duration < 10 ? '0' + duration : duration}</div>
@@ -529,20 +530,64 @@ function escapeHtml(text) {
 }
 
 // Modal Video Preview
-function openVideoModal(url, title, desc) {
+function openVideoModal(clipIndex) {
+    const clip = window.currentClips[clipIndex];
+    const url = clip.clipUrl ? (clip.clipUrl.startsWith('/') ? `${MODAL_BASE_URL}${clip.clipUrl}` : clip.clipUrl) : '';
+    const title = clip.hookType ? `${clip.hookType} Hook` : `Clip ${clipIndex + 1}`;
+    const duration = clip.duration ? Math.round(clip.duration) : 30;
+    const desc = `${duration}s • 9:16 Vertical format`;
+
     const modal = document.getElementById('video-modal');
     const player = document.getElementById('modal-video-player');
     player.src = url;
     document.getElementById('modal-clip-title').innerText = title;
-    document.getElementById('modal-clip-desc').innerText = desc || "High retention short segment";
+    document.getElementById('modal-clip-desc').innerText = desc;
     document.getElementById('modal-download-link').href = url;
     
     // Update Timeline Component
-    const durationMatch = desc.match(/^(\d+)s/);
-    if (durationMatch) {
-        let dur = parseInt(durationMatch[1]);
-        document.getElementById('timeline-duration').innerText = `00:${dur < 10 ? '0'+dur : dur}`;
+    document.getElementById('timeline-duration').innerText = `00:${duration < 10 ? '0'+duration : duration}`;
+
+    // Render Transcript
+    const transcriptContainer = document.getElementById('transcript-container');
+    if (clip.captions && clip.captions.length > 0) {
+        transcriptContainer.innerHTML = '';
+        clip.captions.forEach((caption, idx) => {
+            const span = document.createElement('span');
+            span.innerText = caption.word + ' ';
+            span.className = 'transcript-word';
+            span.dataset.start = caption.start;
+            span.dataset.end = caption.end;
+            span.onclick = () => {
+                player.currentTime = caption.start;
+                player.play();
+            };
+            transcriptContainer.appendChild(span);
+        });
+    } else {
+        transcriptContainer.innerHTML = '<p style="text-align:center; color:#666;">No transcript available.</p>';
     }
+
+    // Highlighting Logic
+    player.ontimeupdate = () => {
+        const currentTime = player.currentTime;
+        const words = transcriptContainer.querySelectorAll('.transcript-word');
+        words.forEach(word => {
+            const start = parseFloat(word.dataset.start);
+            const end = parseFloat(word.dataset.end);
+            if (currentTime >= start && currentTime <= end) {
+                word.style.color = '#FFF';
+                word.style.background = 'rgba(255,255,255,0.1)';
+                word.style.borderRadius = '4px';
+                // Auto-scroll
+                const containerHeight = transcriptContainer.clientHeight;
+                const scrollPos = word.offsetTop - containerHeight / 2;
+                transcriptContainer.scrollTo({ top: scrollPos, behavior: 'smooth' });
+            } else {
+                word.style.color = '#888';
+                word.style.background = 'transparent';
+            }
+        });
+    };
 
     modal.classList.add('active');
 }
