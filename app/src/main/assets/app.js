@@ -47,12 +47,16 @@ function goToWizardStep(stepNum) {
         let url = urlInput ? urlInput.value.trim() : '';
 
         if (!url && !selectedFile) {
-            url = "https://www.youtube.com/watch?v=AaMdXZMvT3w";
-            if (urlInput) urlInput.value = url;
+            showError("Please enter a valid YouTube URL or upload a file.");
+            return;
         }
 
         if (url) {
-            const ytId = extractYoutubeId(url) || "AaMdXZMvT3w";
+            const ytId = extractYoutubeId(url);
+            if (!ytId) {
+                showError("Invalid YouTube URL. Please check the link and try again.");
+                return;
+            }
             document.getElementById('video-preview-thumb').src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
             document.getElementById('video-preview-title').innerText = "YouTube Video Stream";
             document.getElementById('video-preview-author').innerText = "Verified Media Channel";
@@ -220,18 +224,7 @@ async function onUrlInputChange(event) {
     }
 }
 
-function fillSample(url) {
-    const input = document.getElementById('yt-url-input');
-    if (input) {
-        input.value = url;
-        document.getElementById('video-preview-thumb').src = "https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg";
-        document.getElementById('video-preview-title').innerText = "Lex Fridman AI Podcast";
-        document.getElementById('video-preview-author').innerText = "Lex Fridman • Verified Media Stream";
-        const card = document.getElementById('video-ingest-card');
-        if (card) card.style.display = 'flex';
-        goToWizardStep(2);
-    }
-}
+
 
 // File Dropzone Handling
 function triggerFileInput() {

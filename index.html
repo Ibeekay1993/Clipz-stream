@@ -88,12 +88,7 @@
                             <button type="button" onclick="switchTab('file')">Use Upload</button>
                         </div>
 
-                        <div class="sample-links" id="youtube-sample-links">
-                            <span>Try example link:</span>
-                            <button type="button" class="sample-chip" id="btn-sample-lex" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
-                                Lex Fridman AI Podcast
-                            </button>
-                        </div>
+
                     </div>
 
                     <!-- File Drag & Drop Panel -->
@@ -314,41 +309,7 @@
                     <a href="#clipper" class="btn-secondary app-update-secondary"><i class="fa-solid fa-scissors"></i> Use Web Studio</a>
                 </div>
             </section>
-            <!-- Live Downloading Progress Monitor Card -->
-            <div class="progress-card" id="progress-card" style="display: none;">
-                <div class="progress-header">
-                    <div class="spinner"><i class="fa-solid fa-circle-notch fa-spin"></i></div>
-                    <div class="progress-info">
-                        <h3 id="progress-title">Connecting to AI Engine...</h3>
-                        <p id="progress-step">Initializing GPU worker container...</p>
-                    </div>
-                    <span class="progress-pct" id="progress-pct">5%</span>
-                </div>
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progress-bar-fill" style="width: 5%;"></div>
-                </div>
-            </div>
-
-            <!-- Error Monitor Card -->
-            <div class="error-card" id="error-card" style="display: none;">
-                <i class="fa-solid fa-triangle-exclamation error-icon"></i>
-                <div class="error-info">
-                    <h3>Processing Notice</h3>
-                    <p id="error-message">Unable to process video.</p>
-                </div>
-                <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <!-- Results Gallery Section -->
-            <section class="results-section" id="results-section" style="display: none;">
-                <div class="results-header">
-                    <h2><i class="fa-solid fa-fire text-neon"></i> Generated Viral Shorts</h2>
-                    <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
-                </div>
-                <div class="clips-grid" id="clips-grid">
-                    <!-- Clip cards dynamically rendered here -->
-                </div>
-            </section>
+>
         </div>
     </main>
 
