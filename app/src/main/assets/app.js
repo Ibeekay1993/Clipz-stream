@@ -1,5 +1,5 @@
 // Clipz-Stream Frontend Logic — Connected to Modal T4 GPU Engine
-const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app-fastapi-app.modal.run";
+const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run";
 
 let selectedFile = null;
 let currentWizardStep = 1;
