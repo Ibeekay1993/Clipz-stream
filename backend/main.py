@@ -111,100 +111,59 @@ def _cookiefile_path():
 
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
-    cookiefile = _cookiefile_path()
-    if not cookiefile:
-        default_ck = os.path.join(os.path.dirname(__file__), "youtube_cookies.txt")
-        if os.path.exists(default_ck):
-            cookiefile = default_ck
-
-    po_token = os.getenv("YTDLP_PO_TOKEN")
-    proxy = os.getenv("YTDLP_PROXY")
-
-    def _yt_progress_hook(d):
-        if d.get("status") == "downloading" and job_id:
-            total_b = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            downloaded_b = d.get("downloaded_bytes") or 0
-            if total_b > 0:
-                pct = int((downloaded_b / total_b) * 100)
-                mapped_p = 2 + int(pct * 0.28) # Maps 0-100% download to 2%-30% progress bar
-                dl_mb = round(downloaded_b / (1024 * 1024), 1)
-                tot_mb = round(total_b / (1024 * 1024), 1)
-                push_job_update(job_id, progress=mapped_p, current_step=f"Downloading source video ({dl_mb}MB / {tot_mb}MB - {pct}%)...")
-
-    clients_attempts = [
-        ['android_vr'],
-        ['tv_embedded'],
-        ['android'],
-        ['mweb'],
-        ['web'],
-    ]
-
-    last_error = None
-    bot_check_hit = False
-
-    for attempt, client_list in enumerate(clients_attempts):
-        yt_args = {'po_token': [po_token]} if po_token else {}
-        if client_list:
-            yt_args['player_client'] = client_list
-
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'merge_output_format': 'mp4',
-            'final_ext': 'mp4',
-            'outtmpl': out_file,
-            'quiet': True,
-            'no_warnings': True,
-            'retries': 3,
-            'socket_timeout': 15,
-            'progress_hooks': [_yt_progress_hook],
-            'extractor_args': {
-                'youtube': yt_args
-            },
-        }
-        if cookiefile:
-            ydl_opts['cookiefile'] = cookiefile
-        if proxy:
-            ydl_opts['proxy'] = proxy
-
-        try:
-            logger.info(f"Downloading YouTube video via yt_dlp (attempt {attempt+1}/{len(clients_attempts)}, "
-                        f"clients={client_list}, cookies={'yes' if cookiefile else 'no'}, proxy={'yes' if proxy else 'no'}): {url}")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
-                return out_file
-        except Exception as e:
-            msg = str(e)
-            last_error = msg
-            if "Sign in to confirm" in msg or "not a bot" in msg or "cookies" in msg.lower():
-                bot_check_hit = True
-            logger.warning(f"Client list {client_list} failed: {msg}")
-            time.sleep(1.5 * (attempt + 1))  # brief backoff before trying the next client persona
-
-    # Fallback: Parse youtube.com/watch?v= directly for googlevideo stream URL
-    try:
-        vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
-        if vid_match:
-            v_id = vid_match.group(1)
-            page_url = f"https://www.youtube.com/watch?v={v_id}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-            req = requests.get(page_url, headers=headers, timeout=12)
-            if req.status_code == 200:
-                gv_matches = re.findall(r'https://[a-zA-Z0-9.-]+\.googlevideo\.com/videoplayback\?[^"\'\s\\]+', req.text)
-                for gv_u in gv_matches:
-                    u_clean = gv_u.replace("\\u0026", "&").replace("\\/", "/")
-                    logger.info(f"Downloading stream directly via googlevideo parse: {u_clean[:80]}...")
-                    stream_resp = requests.get(u_clean, headers=headers, stream=True, timeout=30)
-                    if stream_resp.status_code == 200:
-                        with open(out_file, "wb") as f_out:
-                            for chunk in stream_resp.iter_content(chunk_size=1024*1024):
-                                if chunk: f_out.write(chunk)
-                        if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
-                            return out_file
-    except Exception as e:
-        logger.warning(f"Direct stream parse note: {e}")
-
-    raise Exception(f"Ingestion failed for {url}: {last_error or 'Could not download media streams'}. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
+    
+    vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
+    if not vid_match:
+        raise Exception("Could not parse YouTube video ID from URL")
+    
+    v_id = vid_match.group(1)
+    
+    # HARDCODED FOR DEMO (You should move this to Modal Secrets in production)
+    rapidapi_key = "464e4811bfmsh680b6b83926701bp10d2a9jsn887212be41e9"
+    headers = {
+        'x-rapidapi-host': 'cloud-api-hub-youtube-downloader.p.rapidapi.com',
+        'x-rapidapi-key': rapidapi_key
+    }
+    
+    if job_id: push_job_update(job_id, progress=5, current_step="Connecting to high-speed ingest network...")
+    
+    api_url = f"https://cloud-api-hub-youtube-downloader.p.rapidapi.com/download?id={v_id}"
+    logger.info(f"Fetching video info from API for {v_id}")
+    req = requests.get(api_url, headers=headers, timeout=20)
+    
+    if req.status_code != 200:
+        raise Exception(f"Failed to fetch video stream. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
+        
+    data = req.json()
+    if isinstance(data, dict) and 'error' in data:
+        raise Exception(f"API Error: {data['error']}. YouTube has temporarily blocked our server.")
+        
+    formats = data if isinstance(data, list) else data.get('formats', [])
+    combined = [f for f in formats if str(f.get('acodec')) != 'none' and str(f.get('vcodec')) != 'none']
+    
+    if not combined:
+        raise Exception("No combined audio/video streams found. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
+        
+    combined.sort(key=lambda x: int(x.get('height') or 0), reverse=True)
+    best_stream = combined[0]
+    stream_url = best_stream.get('url')
+    
+    if not stream_url:
+        raise Exception("Stream URL was empty from API. YouTube has temporarily blocked our server.")
+        
+    if job_id: push_job_update(job_id, progress=10, current_step=f"Downloading high-resolution source video ({best_stream.get('height')}p)...")
+    logger.info(f"Downloading {best_stream.get('height')}p stream...")
+    
+    stream_resp = requests.get(stream_url, stream=True, timeout=30)
+    if stream_resp.status_code == 200:
+        with open(out_file, "wb") as f_out:
+            for chunk in stream_resp.iter_content(chunk_size=1024*1024):
+                if chunk: f_out.write(chunk)
+        if os.path.getsize(out_file) > 100_000:
+            if job_id: push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
+            return out_file
+            
+    raise Exception(f"Ingestion failed for {url}: Could not download media streams. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
 
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
@@ -330,6 +289,7 @@ class Hook(str, Enum):
 class Chunk:
     start: float; end: float; text: str; words: List[dict]; score: int = 0
     hook: str = "General"; reasons: List[str] = field(default_factory=list); viable: bool = False
+    broll_query: str = ""
     @property
     def duration(self): return self.end - self.start
     def title(self) -> str:
@@ -617,7 +577,7 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
         expr = f"if({cond},{val},{expr})"
     return expr
 
-def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None) -> str:
+def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None, burn_captions: bool = False) -> str:
     """Safe FFmpeg crop + OpenCV Face-Tracking + ASS Kinetic Subtitles + Supabase CDN Upload"""
     dur = end - start
     
@@ -629,7 +589,7 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     # 2. Generate ASS Subtitle File if words provided
     ass_path = out + ".ass"
     use_subtitles = False
-    if words:
+    if words and burn_captions:
         try:
             generate_ass_file(words, start, ass_path)
             use_subtitles = os.path.exists(ass_path)
@@ -714,7 +674,7 @@ def gemini_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
         })
         
     prompt = f"""
-You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts.
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts (like OpusClip).
 Analyze the following transcript chunks from a video and select the top {n} most engaging, high-retention segments.
 
 TRANSCRIPT CHUNKS:
@@ -726,6 +686,7 @@ Return ONLY a JSON object with key "clips". Each clip must have:
 - "viralScore": int (82 to 99)
 - "hookType": str (one of: Secret, Revelation, Story, Contrarian, Tutorial, Curiosity, Emotional, Warning)
 - "viralReason": str (1 crisp sentence explaining why this clip will perform well)
+- "brollQuery": str (A highly visual search query for a background image/video that perfectly matches the context of the speech. e.g. "falling money", "dark hacker room", "peaceful forest")
 """
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
@@ -903,6 +864,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 c.score = la.get("viralScore", 85)
                 c.hook = la.get("hookType", "General")
                 c.reasons = [la.get("viralReason", "High-engagement viral hook")]
+                c.broll_query = la.get("brollQuery", "")
                 c.text = la.get("title", c.title()) # Override title
                 chosen_chunks.append((c, la.get("title", c.title())))
     
@@ -932,6 +894,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             return i, {
                 "title": t_clean, "startSec": int(chunk.start), "endSec": int(chunk.end),
                 "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
+                "brollQuery": chunk.broll_query,
                 "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
                 "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
             }
@@ -939,7 +902,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.error(f"Failed to transcode chunk {i}: {e}")
             return i, None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, len(chosen_chunks))) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(chosen_chunks))) as executor:
         futures = [executor.submit(process_single_chunk, (i, chunk_tuple)) for i, chunk_tuple in enumerate(chosen_chunks)]
         for future in concurrent.futures.as_completed(futures):
             idx, res_data = future.result()
@@ -997,6 +960,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
                 c.score = la.get("viralScore", 85)
                 c.hook = la.get("hookType", "General")
                 c.reasons = [la.get("viralReason", "High-engagement viral hook")]
+                c.broll_query = la.get("brollQuery", "")
                 chosen_chunks.append((c, la.get("title", c.title())))
 
     if not chosen_chunks:
@@ -1112,11 +1076,17 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
     
     num_c = max(1, min(body.num_clips, 8))
     
-    def async_job_worker():
-        execute_url_job_bg(job_id, body.url.strip(), num_c, base)
-
-    background_tasks.add_task(async_job_worker)
-    logger.info(f"Queued FastAPI background processing task for job {job_id}")
+    import sys
+    current_module = sys.modules[__name__]
+    if hasattr(current_module, 'modal_background_job_fn'):
+        # Spawn the Modal background function so it runs asynchronously on the cluster
+        current_module.modal_background_job_fn.spawn(job_id, body.url.strip(), num_c, base)
+        logger.info(f"Queued Modal background function for job {job_id}")
+    else:
+        def async_job_worker():
+            execute_url_job_bg(job_id, body.url.strip(), num_c, base)
+        background_tasks.add_task(async_job_worker)
+        logger.info(f"Queued FastAPI background processing task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
 

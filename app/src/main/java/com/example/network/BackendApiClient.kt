@@ -35,6 +35,7 @@ data class BackendClipOutput(
     val endSec: Int,
     val viralScore: Int,
     val viralReason: String,
+    val brollQuery: String? = null,
     val captions: List<BackendWordCaption>?,
     val clipUrl: String? = null
 )
