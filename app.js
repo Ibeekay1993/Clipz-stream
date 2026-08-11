@@ -542,7 +542,8 @@ function openVideoModal(clipIndex) {
     player.src = url;
     document.getElementById('modal-clip-title').innerText = title;
     document.getElementById('modal-clip-desc').innerText = desc;
-    document.getElementById('modal-download-link').href = url;
+    window.currentClipUrl = url; // Store url for download logic
+    window.currentClipTitle = title;
     
     // Update Timeline Component
     document.getElementById('timeline-duration').innerText = `00:${duration < 10 ? '0'+duration : duration}`;
@@ -604,6 +605,41 @@ function closeVideoModalForce() {
     player.pause();
     player.src = "";
     modal.classList.remove('active');
+}
+
+// Download Logic to bypass Cross-Origin limits
+async function downloadClip() {
+    if (!window.currentClipUrl) return;
+    
+    const btn = document.getElementById('modal-download-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(window.currentClipUrl);
+        const blob = await response.blob();
+        
+        // Create an object URL from the Blob
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Clean up title for filename
+        const safeTitle = (window.currentClipTitle || "LClipz-Video").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        a.download = `${safeTitle}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Cleanup
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error("Download failed:", e);
+        alert("Download failed. Please check your connection or try again.");
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
 }
 
 // Social Share Logic

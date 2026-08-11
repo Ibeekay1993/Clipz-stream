@@ -396,9 +396,9 @@
                     <h3 id="modal-clip-title" style="margin-bottom: 4px; font-size: 1rem;">Clip Preview</h3>
                     <p id="modal-clip-desc" style="font-size: 0.8rem; color: #888; margin-bottom: 12px;">High retention video segment</p>
                     <div class="vizard-modal-actions" style="display: flex; gap: 8px;">
-                        <a id="modal-download-link" href="#" download rel="noopener noreferrer" class="btn-primary" style="flex: 1; text-align: center; padding: 8px; font-size: 0.9rem;">
+                        <button type="button" id="modal-download-btn" onclick="downloadClip()" class="btn-primary" style="flex: 1; text-align: center; padding: 8px; font-size: 0.9rem;">
                             <i class="fa-solid fa-download"></i> Export
-                        </a>
+                        </button>
                         <button type="button" class="btn-secondary" style="flex: 1; padding: 8px; font-size: 0.9rem;" onclick="alert('AI post: Social media caption generated!')">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> AI Post
                         </button>
