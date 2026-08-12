@@ -109,61 +109,70 @@ def _cookiefile_path():
     return None
 
 
+class IngestionBlockedError(Exception):
+    """Raised when YouTube refuses the download (bot check / login wall / geo-block)."""
+    pass
+
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
-    
-    vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
-    if not vid_match:
-        raise Exception("Could not parse YouTube video ID from URL")
-    
-    v_id = vid_match.group(1)
-    
-    # HARDCODED FOR DEMO (You should move this to Modal Secrets in production)
-    rapidapi_key = "464e4811bfmsh680b6b83926701bp10d2a9jsn887212be41e9"
-    headers = {
-        'x-rapidapi-host': 'cloud-api-hub-youtube-downloader.p.rapidapi.com',
-        'x-rapidapi-key': rapidapi_key
+    cookiefile = _cookiefile_path()
+    po_token = os.getenv("YTDLP_PO_TOKEN")
+    proxy = os.getenv("YTDLP_PROXY")
+
+    yt_args = {"player_client": ["android_vr", "android", "mweb"]}
+    if po_token:
+        yt_args["po_token"] = [po_token]
+
+    def _progress_hook(d):
+        if d.get("status") == "downloading" and job_id:
+            total_b = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded_b = d.get("downloaded_bytes") or 0
+            if total_b > 0:
+                pct = int((downloaded_b / total_b) * 100)
+                push_job_update(
+                    job_id,
+                    progress=5 + min(15, pct // 6),
+                    current_step=f"Downloading video ({pct}%)..."
+                )
+
+    ydl_opts = {
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "merge_output_format": "mp4",
+        "final_ext": "mp4",
+        "outtmpl": out_file,
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 3,
+        "socket_timeout": 20,
+        "progress_hooks": [_progress_hook],
+        "extractor_args": {"youtube": yt_args},
     }
-    
-    if job_id: push_job_update(job_id, progress=5, current_step="Connecting to high-speed ingest network...")
-    
-    api_url = f"https://cloud-api-hub-youtube-downloader.p.rapidapi.com/download?id={v_id}"
-    logger.info(f"Fetching video info from API for {v_id}")
-    req = requests.get(api_url, headers=headers, timeout=20)
-    
-    if req.status_code != 200:
-        raise Exception(f"Failed to fetch video stream. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
-        
-    data = req.json()
-    if isinstance(data, dict) and 'error' in data:
-        raise Exception(f"API Error: {data['error']}. YouTube has temporarily blocked our server.")
-        
-    formats = data if isinstance(data, list) else data.get('formats', [])
-    combined = [f for f in formats if str(f.get('acodec')) != 'none' and str(f.get('vcodec')) != 'none']
-    
-    if not combined:
-        raise Exception("No combined audio/video streams found. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
-        
-    combined.sort(key=lambda x: int(x.get('height') or 0), reverse=True)
-    best_stream = combined[0]
-    stream_url = best_stream.get('url')
-    
-    if not stream_url:
-        raise Exception("Stream URL was empty from API. YouTube has temporarily blocked our server.")
-        
-    if job_id: push_job_update(job_id, progress=10, current_step=f"Downloading high-resolution source video ({best_stream.get('height')}p)...")
-    logger.info(f"Downloading {best_stream.get('height')}p stream...")
-    
-    stream_resp = requests.get(stream_url, stream=True, timeout=30)
-    if stream_resp.status_code == 200:
-        with open(out_file, "wb") as f_out:
-            for chunk in stream_resp.iter_content(chunk_size=1024*1024):
-                if chunk: f_out.write(chunk)
-        if os.path.getsize(out_file) > 100_000:
-            if job_id: push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
-            return out_file
-            
-    raise Exception(f"Ingestion failed for {url}: Could not download media streams. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
+    if proxy:
+        ydl_opts["proxy"] = proxy
+
+    try:
+        if job_id:
+            push_job_update(job_id, progress=5, current_step="Connecting to video source...")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        logger.error(f"yt-dlp download failed for {url}: {e}")
+        raise IngestionBlockedError(
+            f"Failed to download video: {e}. YouTube may be blocking this server. "
+            f"Please use 'Upload Video File' instead."
+        )
+
+    if not os.path.exists(out_file) or os.path.getsize(out_file) < 100_000:
+        raise IngestionBlockedError(
+            "Downloaded file was too small or empty. "
+            "YouTube may be blocking this server. Please use 'Upload Video File' instead."
+        )
+
+    if job_id:
+        push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
+    return out_file
 
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
@@ -273,7 +282,31 @@ def download_youtube_section(url: str, out_dir: str, start: float, end: float, i
             logger.warning(f"Full stream retry failed: {e2}")
 
     if not os.path.exists(out_file) or os.path.getsize(out_file) < 50_000:
-        raise Exception(f"Could not download media stream for {url}")
+        logger.info("Attempting Cobalt API fallback for section download...")
+        try:
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+            payload = {"url": url, "vCodec": "h264", "videoQuality": "1080"}
+            resp = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                dl_url = data.get("url")
+                if dl_url:
+                    dl_resp = requests.get(dl_url, headers={"User-Agent": headers["User-Agent"]}, stream=True, timeout=60)
+                    if dl_resp.status_code == 200:
+                        with open(out_file, "wb") as f_out:
+                            for chunk in dl_resp.iter_content(chunk_size=1024*1024):
+                                if chunk: f_out.write(chunk)
+                        if os.path.exists(out_file) and os.path.getsize(out_file) > 50_000:
+                            logger.info(f"Cobalt API fallback succeeded for section: {out_file}")
+                            return out_file
+        except Exception as ce:
+            logger.warning(f"Cobalt API fallback note for section: {ce}")
+            
+        raise Exception(f"Failed to fetch video stream. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
         
     return out_file
 
@@ -1158,26 +1191,28 @@ try:
     image = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("ffmpeg")
-        .pip_install("fastapi", "yt-dlp", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless")
+        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless")
     )
     modal_app = modal.App("clipz-stream")
     
-    secret_dict = {}
-    if os.getenv("GROQ_API_KEY"):
-        secret_dict["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-    if os.getenv("SUPABASE_URL"):
-        secret_dict["SUPABASE_URL"] = os.getenv("SUPABASE_URL")
-    if os.getenv("SUPABASE_KEY"):
-        secret_dict["SUPABASE_KEY"] = os.getenv("SUPABASE_KEY")
-    if os.getenv("YTDLP_COOKIES_CONTENT"):
-        secret_dict["YTDLP_COOKIES_CONTENT"] = os.getenv("YTDLP_COOKIES_CONTENT")
+    # Load secrets directly from Modal Cloud (configured in Modal Dashboard)
+    secret = modal.Secret.from_name("clipz-secrets")
+    secrets_list = [secret]
 
-    secret = modal.Secret.from_dict(secret_dict) if secret_dict else None
-    secrets_list = [secret] if secret else []
+    # Attach the shared Modal Volume so state is preserved across container replicas
+    modal_volume_instance = modal.Volume.from_name("clipz-shared-storage", create_if_missing=True)
+    modal_volume = modal_volume_instance  # bind to global
 
-    @modal_app.function(image=image, timeout=600, cpu=2.0, secrets=secrets_list)
+    @modal_app.function(
+        image=image, 
+        timeout=600, 
+        cpu=2.0, 
+        secrets=secrets_list, 
+        volumes={"/root/storage": modal_volume_instance}
+    )
     @modal.asgi_app()
     def fastapi_app():
         return app
-except Exception:
+except Exception as e:
+    print(f"Modal init error: {e}")
     pass
