@@ -743,7 +743,7 @@ Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int
 """
     try:
         resp = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
