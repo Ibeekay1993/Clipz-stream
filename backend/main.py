@@ -115,64 +115,58 @@ class IngestionBlockedError(Exception):
 
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
-    cookiefile = _cookiefile_path()
-    po_token = os.getenv("YTDLP_PO_TOKEN")
-    proxy = os.getenv("YTDLP_PROXY")
+    
+    vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
+    if not vid_match:
+        raise Exception("Could not parse YouTube video ID from URL")
+    
+    v_id = vid_match.group(1)
+    
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+    if not rapidapi_key:
+        raise Exception("RAPIDAPI_KEY is missing from environment. Please add it to Modal Secrets.")
 
-    yt_args = {"player_client": ["android_vr", "android", "mweb"]}
-    if po_token:
-        yt_args["po_token"] = [po_token]
-
-    def _progress_hook(d):
-        if d.get("status") == "downloading" and job_id:
-            total_b = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            downloaded_b = d.get("downloaded_bytes") or 0
-            if total_b > 0:
-                pct = int((downloaded_b / total_b) * 100)
-                push_job_update(
-                    job_id,
-                    progress=5 + min(15, pct // 6),
-                    current_step=f"Downloading video ({pct}%)..."
-                )
-
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
-        "final_ext": "mp4",
-        "outtmpl": out_file,
-        "quiet": True,
-        "no_warnings": True,
-        "retries": 3,
-        "socket_timeout": 20,
-        "progress_hooks": [_progress_hook],
-        "extractor_args": {"youtube": yt_args},
+    headers = {
+        'x-rapidapi-host': 'cloud-api-hub-youtube-downloader.p.rapidapi.com',
+        'x-rapidapi-key': rapidapi_key
     }
-    if cookiefile:
-        ydl_opts["cookiefile"] = cookiefile
-    if proxy:
-        ydl_opts["proxy"] = proxy
-
-    try:
-        if job_id:
-            push_job_update(job_id, progress=5, current_step="Connecting to video source...")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception as e:
-        logger.error(f"yt-dlp download failed for {url}: {e}")
-        raise IngestionBlockedError(
-            f"Failed to download video: {e}. YouTube may be blocking this server. "
-            f"Please use 'Upload Video File' instead."
-        )
-
-    if not os.path.exists(out_file) or os.path.getsize(out_file) < 100_000:
-        raise IngestionBlockedError(
-            "Downloaded file was too small or empty. "
-            "YouTube may be blocking this server. Please use 'Upload Video File' instead."
-        )
-
-    if job_id:
-        push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
-    return out_file
+    
+    if job_id: push_job_update(job_id, progress=5, current_step="Connecting to high-speed ingest network...")
+    
+    api_url = f"https://cloud-api-hub-youtube-downloader.p.rapidapi.com/download?id={v_id}"
+    logger.info(f"Fetching video info from API for {v_id}")
+    req = requests.get(api_url, headers=headers, timeout=20)
+    
+    if req.status_code != 200 or (isinstance(req.json(), dict) and 'error' in req.json()):
+        raise Exception("Failed to fetch video stream from RapidAPI. Please use 'Upload Video File' instead.")
+        
+    data = req.json()
+    formats = data if isinstance(data, list) else data.get('formats', [])
+    combined = [f for f in formats if str(f.get('acodec')) != 'none' and str(f.get('vcodec')) != 'none']
+    
+    if not combined:
+        raise Exception("No combined audio/video streams found. Please use 'Upload Video File' instead.")
+        
+    combined.sort(key=lambda x: int(x.get('height') or 0), reverse=True)
+    best_stream = combined[0]
+    stream_url = best_stream.get('url')
+    
+    if not stream_url:
+        raise Exception("Stream URL was empty from API.")
+        
+    if job_id: push_job_update(job_id, progress=10, current_step=f"Downloading high-resolution source video ({best_stream.get('height')}p)...")
+    logger.info(f"Downloading {best_stream.get('height')}p stream...")
+    
+    stream_resp = requests.get(stream_url, stream=True, timeout=30)
+    if stream_resp.status_code == 200:
+        with open(out_file, "wb") as f_out:
+            for chunk in stream_resp.iter_content(chunk_size=1024*1024):
+                if chunk: f_out.write(chunk)
+        if os.path.getsize(out_file) > 100_000:
+            if job_id: push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
+            return out_file
+            
+    raise Exception(f"Ingestion failed for {url}: Could not download media streams. Please use 'Upload Video File' instead.")
 
 def is_youtube_url(url: str) -> bool:
     return "youtube.com" in url or "youtu.be" in url
@@ -749,7 +743,7 @@ Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int
 """
     try:
         resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -1190,8 +1184,8 @@ try:
     import modal
     image = (
         modal.Image.debian_slim(python_version="3.11")
+        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless", "youtube-transcript-api")
         .apt_install("ffmpeg")
-        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless")
     )
     modal_app = modal.App("clipz-stream")
     
