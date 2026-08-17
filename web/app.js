@@ -407,8 +407,15 @@ async function handleFileUploadSubmit() {
         }
 
         const resultData = await response.json();
-        hideProgress();
-        renderResults(resultData);
+        
+        if (resultData.job_id) {
+            // Backend returned a job ID (async processing)
+            pollJobStatus(resultData.job_id);
+        } else {
+            // Fallback for older synchronous behavior
+            hideProgress();
+            renderResults(resultData);
+        }
 
     } catch (err) {
         showError(err.message || "Video upload failed.");

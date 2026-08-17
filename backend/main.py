@@ -1134,14 +1134,31 @@ async def get_job_status(job_id: str):
     raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
+async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
     base = str(request.base_url).rstrip("/")
     ext = os.path.splitext(file.filename)[1] or ".mp4"
-    vpath = os.path.join(RAW_UPLOADS_DIR, f"uploaded_{uuid.uuid4().hex[:8]}{ext}")
+    job_id = uuid.uuid4().hex[:12]
+    vpath = os.path.join(RAW_UPLOADS_DIR, f"uploaded_{job_id}{ext}")
     try:
         with open(vpath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return await run_in_threadpool(run_pipeline, vpath, file.filename, max(1, min(num_clips, 8)), base)
+            
+        push_job_update(
+            job_id=job_id,
+            progress=5,
+            current_step="File uploaded successfully. Preparing AI pipeline...",
+            status="processing"
+        )
+        
+        num_c = max(1, min(num_clips, 8))
+        
+        def async_upload_job_worker():
+            execute_job_bg(job_id, vpath, file.filename, num_c, base)
+            
+        background_tasks.add_task(async_upload_job_worker)
+        logger.info(f"Queued FastAPI background processing task for uploaded file job {job_id}")
+        
+        return {"job_id": job_id, "status": "processing"}
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(500, str(e))
