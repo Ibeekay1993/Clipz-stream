@@ -1088,8 +1088,26 @@ async def process_video_api(body: ProcessRequest, request: Request):
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
 
+@modal_app.function(
+    image=image,
+    secrets=secrets_list,
+    timeout=600,
+    volumes={"/root/storage": modal_volume_instance}
+)
+def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str):
+    execute_url_job_bg(job_id, url, num_clips, base_url)
+
+@modal_app.function(
+    image=image,
+    secrets=secrets_list,
+    timeout=600,
+    volumes={"/root/storage": modal_volume_instance}
+)
+def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
+    execute_job_bg(job_id, vpath, filename, num_clips, base_url)
+
 @app.post("/api/jobs/create")
-async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks, request: Request = None):
+async def create_job_api(body: ProcessRequest, request: Request = None):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
     job_id = uuid.uuid4().hex[:12]
@@ -1103,17 +1121,8 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
     
     num_c = max(1, min(body.num_clips, 8))
     
-    import sys
-    current_module = sys.modules[__name__]
-    if hasattr(current_module, 'modal_background_job_fn') and getattr(current_module, 'modal_background_job_fn') is not None:
-        # Spawn the Modal background function so it runs asynchronously on the cluster
-        current_module.modal_background_job_fn.spawn(job_id, body.url.strip(), num_c, base)
-        logger.info(f"Queued Modal background function for job {job_id}")
-    else:
-        def async_job_worker():
-            execute_url_job_bg(job_id, body.url.strip(), num_c, base)
-        background_tasks.add_task(async_job_worker)
-        logger.info(f"Queued FastAPI background processing task for job {job_id}")
+    run_background_job_modal.spawn(job_id, body.url.strip(), num_c, base)
+    logger.info(f"Spawned Modal background function for URL job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
 
@@ -1134,7 +1143,7 @@ async def get_job_status(job_id: str):
     raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
+async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
     base = str(request.base_url).rstrip("/")
     ext = os.path.splitext(file.filename)[1] or ".mp4"
     job_id = uuid.uuid4().hex[:12]
@@ -1152,11 +1161,8 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
         
         num_c = max(1, min(num_clips, 8))
         
-        def async_upload_job_worker():
-            execute_job_bg(job_id, vpath, file.filename, num_c, base)
-            
-        background_tasks.add_task(async_upload_job_worker)
-        logger.info(f"Queued FastAPI background processing task for uploaded file job {job_id}")
+        run_background_upload_job_modal.spawn(job_id, vpath, file.filename, num_c, base)
+        logger.info(f"Spawned Modal background function for uploaded file job {job_id}")
         
         return {"job_id": job_id, "status": "processing"}
     except Exception as e:
