@@ -1085,26 +1085,8 @@ async def process_video_api(body: ProcessRequest, request: Request):
         vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
         return await run_in_threadpool(run_pipeline, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
     except Exception as e:
-        logger.error(f"Process failed: {e}")
-        raise HTTPException(500, str(e))
-
-@modal_app.function(
-    image=image,
-    secrets=secrets_list,
-    timeout=600,
-    volumes={"/root/storage": modal_volume_instance}
-)
-def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str):
-    execute_url_job_bg(job_id, url, num_clips, base_url)
-
-@modal_app.function(
-    image=image,
-    secrets=secrets_list,
-    timeout=600,
-    volumes={"/root/storage": modal_volume_instance}
-)
-def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
-    execute_job_bg(job_id, vpath, filename, num_clips, base_url)
+run_background_job_modal = None
+run_background_upload_job_modal = None
 
 @app.post("/api/jobs/create")
 async def create_job_api(body: ProcessRequest, request: Request = None):
@@ -1121,8 +1103,11 @@ async def create_job_api(body: ProcessRequest, request: Request = None):
     
     num_c = max(1, min(body.num_clips, 8))
     
-    run_background_job_modal.spawn(job_id, body.url.strip(), num_c, base)
-    logger.info(f"Spawned Modal background function for URL job {job_id}")
+    if run_background_job_modal:
+        run_background_job_modal.spawn(job_id, body.url.strip(), num_c, base)
+        logger.info(f"Spawned Modal background function for URL job {job_id}")
+    else:
+        logger.error("Modal background function not initialized!")
 
     return {"job_id": job_id, "status": "processing"}
 
@@ -1161,8 +1146,11 @@ async def upload_video_api(request: Request, file: UploadFile = File(...), num_c
         
         num_c = max(1, min(num_clips, 8))
         
-        run_background_upload_job_modal.spawn(job_id, vpath, file.filename, num_c, base)
-        logger.info(f"Spawned Modal background function for uploaded file job {job_id}")
+        if run_background_upload_job_modal:
+            run_background_upload_job_modal.spawn(job_id, vpath, file.filename, num_c, base)
+            logger.info(f"Spawned Modal background function for uploaded file job {job_id}")
+        else:
+            logger.error("Modal background upload function not initialized!")
         
         return {"job_id": job_id, "status": "processing"}
     except Exception as e:
@@ -1219,6 +1207,26 @@ try:
     # Attach the shared Modal Volume so state is preserved across container replicas
     modal_volume_instance = modal.Volume.from_name("clipz-shared-storage", create_if_missing=True)
     modal_volume = modal_volume_instance  # bind to global
+
+    @modal_app.function(
+        image=image, 
+        timeout=600, 
+        cpu=2.0, 
+        secrets=secrets_list, 
+        volumes={"/root/storage": modal_volume_instance}
+    )
+    def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str):
+        execute_url_job_bg(job_id, url, num_clips, base_url)
+
+    @modal_app.function(
+        image=image, 
+        timeout=600, 
+        cpu=2.0, 
+        secrets=secrets_list, 
+        volumes={"/root/storage": modal_volume_instance}
+    )
+    def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
+        execute_job_bg(job_id, vpath, filename, num_clips, base_url)
 
     @modal_app.function(
         image=image, 
