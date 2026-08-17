@@ -1085,6 +1085,9 @@ async def process_video_api(body: ProcessRequest, request: Request):
         vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
         return await run_in_threadpool(run_pipeline, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
     except Exception as e:
+        logger.error(f"Process failed: {e}")
+        raise HTTPException(500, str(e))
+
 run_background_job_modal = None
 run_background_upload_job_modal = None
 
