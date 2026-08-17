@@ -386,6 +386,14 @@ async function handleYoutubeSubmit(event) {
 async function handleFileUploadSubmit() {
     if (!selectedFile) return;
     dismissError();
+    
+    // Check file size (100MB limit for Modal HTTP ingress)
+    const MAX_FILE_SIZE_MB = 100;
+    if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        showError(`File too large (${(selectedFile.size / (1024*1024)).toFixed(1)}MB). The cloud proxy limit is ${MAX_FILE_SIZE_MB}MB. Please use the YouTube Link option instead for large videos!`);
+        return;
+    }
+    
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
 
     showProgress("Uploading video file to Studio Engine...", 10);
@@ -417,8 +425,30 @@ async function handleFileUploadSubmit() {
         }
 
     } catch (err) {
-        showError(err.message || "Video upload failed.");
+        if (err.message.includes("Failed to fetch")) {
+            showError("Network Error: Connection to cloud dropped. Your video may be too large or the server timed out. Try using a YouTube link!");
+        } else {
+            showError(err.message || "Video upload failed.");
+        }
     }
+}
+
+// Start Over / Reset App
+function resetApp() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    document.getElementById('url-input').value = '';
+    selectedFile = null;
+    document.getElementById('dropzone-title').innerText = "Drag & Drop video file here";
+    document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
+    document.getElementById('dropzone-browse-btn').style.display = "inline-block";
+    document.getElementById('file-action-container').style.display = "none";
+    
+    document.getElementById('progress-card').style.display = 'none';
+    document.getElementById('results-section').style.display = 'none';
+    document.getElementById('clips-grid').innerHTML = '';
+    
+    goToWizardStep(1);
+    dismissError();
 }
 
 // Poll Job Status Loop

@@ -667,7 +667,11 @@ def deepseek_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     """DeepSeek-R1 Viral Reasoning AI via Free OpenRouter Inference"""
     payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "text": c.text} for idx, c in enumerate(chunks)]
     prompt = f"""
-Analyze the transcript chunks below and select top {n} viral clips for TikTok/Reels:
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts.
+Analyze the transcript chunks below and select EXACTLY {n} viral clips. YOU MUST RETURN EXACTLY {n} CLIPS.
+Choose segments that have high-retention hooks, emotional spikes, or contrarian opinions.
+
+TRANSCRIPT CHUNKS:
 {json.dumps(payload_chunks, indent=2)}
 
 Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int, "hookType": str, "viralReason": str}}]}}
@@ -702,7 +706,8 @@ def gemini_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
         
     prompt = f"""
 You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts (like OpusClip).
-Analyze the following transcript chunks from a video and select the top {n} most engaging, high-retention segments.
+Analyze the following transcript chunks from a video and select EXACTLY {n} of the most engaging, high-retention segments. YOU MUST RETURN EXACTLY {n} CLIPS, NO MORE, NO LESS.
+Choose segments that have high-retention hooks, emotional spikes, or contrarian opinions.
 
 TRANSCRIPT CHUNKS:
 {json.dumps(payload_chunks, indent=2)}
@@ -736,7 +741,11 @@ def llama_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "duration": round(c.duration, 1), "text": c.text} for idx, c in enumerate(chunks)]
     prompt = f"""
-You are an elite viral video editor. Analyze these transcript chunks and select top {n} viral clips:
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts.
+Analyze these transcript chunks and select EXACTLY {n} viral clips. YOU MUST RETURN EXACTLY {n} CLIPS.
+Choose segments that have high-retention hooks, emotional spikes, or contrarian opinions.
+
+TRANSCRIPT CHUNKS:
 {json.dumps(payload_chunks, indent=2)}
 
 Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int, "hookType": str, "viralReason": str}}]}}
