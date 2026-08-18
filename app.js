@@ -433,22 +433,30 @@ async function handleFileUploadSubmit() {
     }
 }
 
-// Start Over / Reset App
+// Clip Another Video Workflow
 function resetApp() {
     if (pollingInterval) clearInterval(pollingInterval);
-    document.getElementById('url-input').value = '';
-    selectedFile = null;
-    document.getElementById('dropzone-title').innerText = "Drag & Drop video file here";
-    document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
-    document.getElementById('dropzone-browse-btn').style.display = "inline-block";
-    document.getElementById('file-action-container').style.display = "none";
     
-    document.getElementById('progress-card').style.display = 'none';
-    document.getElementById('results-section').style.display = 'none';
-    document.getElementById('clips-grid').innerHTML = '';
+    const resultsSection = document.getElementById('results-section');
+    resultsSection.style.opacity = '0';
+    resultsSection.style.transition = 'opacity 0.3s ease';
     
-    goToWizardStep(1);
-    dismissError();
+    setTimeout(() => {
+        document.getElementById('url-input').value = '';
+        selectedFile = null;
+        document.getElementById('dropzone-title').innerText = "Drag & Drop video file here";
+        document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
+        document.getElementById('dropzone-browse-btn').style.display = "inline-block";
+        document.getElementById('file-action-container').style.display = "none";
+        
+        document.getElementById('progress-card').style.display = 'none';
+        resultsSection.style.display = 'none';
+        resultsSection.style.opacity = '1';
+        document.getElementById('clips-grid').innerHTML = '';
+        
+        goToWizardStep(1);
+        dismissError();
+    }, 300);
 }
 
 // Poll Job Status Loop
