@@ -276,20 +276,6 @@ function showProgress(stepMsg, pct) {
     document.getElementById('progress-pct').innerText = `${pct}%`;
     document.getElementById('progress-bar-fill').style.width = `${pct}%`;
 
-    // Add to AI Terminal Log
-    const term = document.getElementById('ai-terminal-log');
-    if (term) {
-        // Prevent duplicate spam if the exact same message is repeated consecutively
-        const lastLine = term.lastElementChild;
-        if (!lastLine || !lastLine.innerText.includes(stepMsg)) {
-            const line = document.createElement('div');
-            line.className = 'terminal-line';
-            line.innerHTML = `<span class="term-prefix">system@lclipz:~$</span> ${stepMsg} [${pct}%]`;
-            term.appendChild(line);
-            term.scrollTop = term.scrollHeight; // auto-scroll
-        }
-    }
-
     // Dynamically update Vizard level indicators
     const lvl1 = document.getElementById('vizard-lvl-1');
     const lvl2 = document.getElementById('vizard-lvl-2');
