@@ -941,10 +941,14 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 c.text = la.get("title", c.title()) # Override title
                 chosen_chunks.append((c, la.get("title", c.title())))
     
-    if not chosen_chunks:
+    if len(chosen_chunks) < n:
         scored = [score(c) for c in chunks]
-        chosen = select(scored, n)
-        chosen_chunks = [(c, c.title()) for c in chosen]
+        heuristic_chosen = [(c, c.title()) for c in select(scored, n)]
+        for hc, htitle in heuristic_chosen:
+            if len(chosen_chunks) >= n:
+                break
+            if not any(cc[0].text == hc.text for cc in chosen_chunks):
+                chosen_chunks.append((hc, htitle))
 
     update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
     logger.info("Transcoding and uploading clips in parallel...")
@@ -1036,9 +1040,14 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
                 c.broll_query = la.get("brollQuery", "")
                 chosen_chunks.append((c, la.get("title", c.title())))
 
-    if not chosen_chunks:
+    if len(chosen_chunks) < n:
         scored = [score(c) for c in chunks]
-        chosen_chunks = [(c, c.title()) for c in select(scored, n)]
+        heuristic_chosen = [(c, c.title()) for c in select(scored, n)]
+        for hc, htitle in heuristic_chosen:
+            if len(chosen_chunks) >= n:
+                break
+            if not any(cc[0].text == hc.text for cc in chosen_chunks):
+                chosen_chunks.append((hc, htitle))
 
     if not chosen_chunks:
         raise Exception("No viable caption segments selected.")
