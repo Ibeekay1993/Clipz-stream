@@ -376,6 +376,54 @@
         </div>
     </div>
 
+    <!-- Publish Social Modal -->
+    <div class="modal-overlay" id="publish-modal" onclick="closePublishModal(event)" style="display: none; z-index: 2000;">
+        <div class="modal-card" style="max-width: 480px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+            <button class="modal-close" onclick="closePublishModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
+            
+            <div style="text-align: center; margin-bottom: 24px;">
+                <h2 style="color: #FFF; font-size: 1.4rem; margin-bottom: 8px;">Publish to Socials</h2>
+                <p style="color: #888; font-size: 0.9rem;">Connect your accounts to post directly from ClipzStudio.</p>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px;">
+                <button class="btn-secondary" onclick="mockSocialPublish('TikTok')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-tiktok" style="font-size: 1.4rem; color: #FFF;"></i>
+                        <span style="font-weight: 600;">TikTok</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+
+                <button class="btn-secondary" onclick="mockSocialPublish('YouTube Shorts')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-youtube" style="font-size: 1.4rem; color: #FF0000;"></i>
+                        <span style="font-weight: 600;">YouTube Shorts</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+
+                <button class="btn-secondary" onclick="mockSocialPublish('Instagram Reels')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-instagram" style="font-size: 1.4rem; color: #E1306C;"></i>
+                        <span style="font-weight: 600;">Instagram Reels</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+            </div>
+            
+            <div style="background: rgba(120,40,230,0.1); border-radius: 8px; padding: 12px; border: 1px solid rgba(120,40,230,0.3); margin-bottom: 24px;">
+                <p style="margin: 0; font-size: 0.8rem; color: #B388FF; line-height: 1.4; text-align: center;">
+                    <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i> Direct Publishing requires API authentication. Right now, this button allows you to download the video or copy the link to post natively.
+                </p>
+            </div>
+
+            <button class="btn-primary" onclick="copyPublishLinkFallback()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600;">
+                <i class="fa-solid fa-link" style="margin-right: 8px;"></i> Copy Link & Post Manually
+            </button>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-container">

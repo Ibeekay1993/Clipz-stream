@@ -799,27 +799,50 @@ async function downloadClip() {
 }
 
 // Social Share Logic
+let currentPublishUrl = '';
+
 function shareClip(title, url) {
-    // If url is relative or missing, fallback to current window href
     const fullUrl = url && url.startsWith('http') ? url : window.location.href;
+    currentPublishUrl = fullUrl;
     
-    if (navigator.share) {
+    // Attempt native share on Mobile devices if supported
+    if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
         navigator.share({
             title: title,
-            text: `Check out this viral clip: ${title}\\n\\n#viral #fyp #podcast`,
+            text: `Check out this viral clip: ${title}\n\n#viral #fyp #podcast`,
             url: fullUrl
         }).catch(err => {
-            console.warn('Share API failed, falling back to clipboard:', err);
-            fallbackShare(fullUrl);
+            console.warn('Share API failed, falling back to modal:', err);
+            openPublishModal();
         });
     } else {
-        fallbackShare(fullUrl);
+        // On Desktop, open the mock Publish to Socials Modal
+        openPublishModal();
     }
 }
 
-function fallbackShare(url) {
-    navigator.clipboard.writeText(url).then(() => {
+function openPublishModal() {
+    document.getElementById('publish-modal').style.display = 'flex';
+}
+
+function closePublishModal(e) {
+    if (e.target.id === 'publish-modal') {
+        closePublishModalForce();
+    }
+}
+
+function closePublishModalForce() {
+    document.getElementById('publish-modal').style.display = 'none';
+}
+
+function mockSocialPublish(platform) {
+    alert(`To publish directly to ${platform}, you must connect your account in Settings (OAuth API required). For now, use the link or download button.`);
+}
+
+function copyPublishLinkFallback() {
+    navigator.clipboard.writeText(currentPublishUrl).then(() => {
         alert('Publish link copied to clipboard! Paste it on your social media.');
+        closePublishModalForce();
     }).catch(() => {
         alert('Unable to copy link to clipboard.');
     });
