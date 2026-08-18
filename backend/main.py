@@ -663,6 +663,39 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
             logger.warning(f"Modal volume commit note after clip transcode: {ve}")
     return f"/clips/{fname}"
 
+def modal_inference_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
+    """Call our private Qwen3.6-35B Modal Inference Endpoint"""
+    from openai import OpenAI
+    client = OpenAI(
+        base_url="https://ibeekay1993--clipz-qwen.modal.run/v1",
+        api_key="unauthenticated-endpoint" # Unauthenticated endpoint allows this
+    )
+    payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "duration": round(c.duration, 1), "text": c.text} for idx, c in enumerate(chunks)]
+    prompt = f"""
+You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts.
+Analyze these transcript chunks and select EXACTLY {n} viral clips. YOU MUST RETURN EXACTLY {n} CLIPS.
+Choose segments that have high-retention hooks, emotional spikes, or contrarian opinions.
+
+TRANSCRIPT CHUNKS:
+{json.dumps(payload_chunks, indent=2)}
+
+Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int, "hookType": str, "viralReason": str}}]}}
+"""
+    try:
+        resp = client.chat.completions.create(
+            model="Qwen/Qwen3.6-35B-A3B",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        content = resp.choices[0].message.content
+        if "```json" in content:
+             content = content.split("```json")[1].split("```")[0].strip()
+        data = json.loads(content)
+        return data.get("clips", [])
+    except Exception as e:
+        logger.error(f"Modal Qwen3.6 Inference Error: {e}")
+        return []
+
 def deepseek_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     """DeepSeek-R1 Viral Reasoning AI via Free OpenRouter Inference"""
     payload_chunks = [{"id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "text": c.text} for idx, c in enumerate(chunks)]
@@ -764,24 +797,28 @@ Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int
 
 def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
     """
-    Industry Best Practice: Distributed Specialized AI Microservices Architecture
-    - Groq Whisper-v3 -> Dedicated Audio Speech-to-Text & Word Timings
-    - DeepSeek-R1     -> Dedicated Virality Reasoning & Psychological Hook Selection
-    - Groq Llama-3 70B -> Dedicated Catchy Title & Hashtag Generation
-    - Gemini 2.0 Flash -> Dedicated Visual Scene & Hook Categorization
+    Industry Best Practice: Dedicated Managed Inference Architecture
+    - Groq Whisper-v3 -> Audio Speech-to-Text
+    - Modal Qwen3.6-35B -> Dedicated Private GPU Inference (Zero Latency)
+    - DeepSeek-R1 -> Deep Reasoning Fallback
+    - Llama-3 -> Quick Virality Analysis Fallback
+    - Gemini 2.0 -> Visual Intelligence Fallback
     """
-    logger.info("Orchestrating Distributed Specialized Multi-AI Pipeline...")
+    logger.info("Calling Private Modal Qwen3.6 Inference Endpoint...")
+    clips = modal_inference_analyze_chunks(chunks, n)
     
-    # Task 1: DeepSeek-R1 performs deep reasoning for viral chunk selection
-    clips = deepseek_analyze_chunks(chunks, n)
     if not clips:
-        logger.info("Delegating chunk selection to Groq Llama-3 70B...")
+        logger.info("Delegating to DeepSeek-R1...")
+        clips = deepseek_analyze_chunks(chunks, n)
+        
+    if not clips:
+        logger.info("Delegating to Groq Llama-3...")
         clips = llama_analyze_chunks(chunks, n)
         
     if not clips:
-        logger.info("Delegating chunk selection to Google Gemini 2.0 Flash...")
+        logger.info("Delegating to Google Gemini 2.0 Flash...")
         clips = gemini_analyze_chunks(chunks, n)
-
+        
     return clips or []
 
 # Persistent Job Tracking
@@ -1006,9 +1043,9 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     if not chosen_chunks:
         raise Exception("No viable caption segments selected.")
 
-    clips_out = []
-    for i, (chunk, title_text) in enumerate(chosen_chunks):
-        update_job(30 + int((i / max(1, len(chosen_chunks))) * 55), f"Downloading selected clip window {i + 1} of {len(chosen_chunks)}...")
+    clips_out = [None] * len(chosen_chunks)
+    
+    def process_youtube_clip(i, chunk, title_text):
         section_start = max(0.0, chunk.start - 2.0)
         section_end = chunk.end + 2.0
         section_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i, job_id)
@@ -1025,12 +1062,14 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
         fpath = os.path.join(CLIPS_DIR, fname)
         local_start = max(0.0, chunk.start - section_start)
         local_end = max(local_start + 3.0, chunk.end - section_start)
-        clip_url = transcode_and_upload(section_path, local_start, local_end, fpath, words=adjusted_words)
+        
+        # Hardcode automated Subtitles ON
+        clip_url = transcode_and_upload(section_path, local_start, local_end, fpath, words=adjusted_words, burn_captions=True)
         if clip_url.startswith("/clips/"):
             clip_url = f"{base}{clip_url}"
 
         captions = [{"word": w["word"], "startMs": w["startMs"], "endMs": w["endMs"]} for w in adjusted_words]
-        clips_out.append({
+        return i, {
             "title": title_text,
             "startSec": int(chunk.start),
             "endSec": int(chunk.end),
@@ -1042,7 +1081,17 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
             "hookType": chunk.hook,
             "allReasons": chunk.reasons,
             "durationSec": round(chunk.duration, 1),
-        })
+        }
+
+    update_job(30, "Parallel downloading and rendering all clips concurrently...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(chosen_chunks))) as executor:
+        futures = {executor.submit(process_youtube_clip, i, chunk, title): i for i, (chunk, title) in enumerate(chosen_chunks)}
+        for future in concurrent.futures.as_completed(futures):
+            idx, res_data = future.result()
+            if res_data:
+                clips_out[idx] = res_data
+
+    clips_out = [c for c in clips_out if c is not None]
 
     update_job(100, "Complete")
     return {"url": url, "duration": words[-1]["endMs"] / 1000.0, "clips": clips_out}
