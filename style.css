@@ -892,28 +892,48 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-top: 24px;
-    padding-top: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 32px;
+    padding: 20px 24px;
+    background: #0B0E14;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
 
 .clips-count-selector {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-weight: 700;
-    font-size: 0.9rem;
-    color: var(--text-muted);
+    gap: 12px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #94A3B8;
 }
 
 .select-input {
-    background: var(--surface-slate);
-    color: #FFF;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
-    padding: 8px 12px;
-    font-weight: 700;
+    background: var(--surface-slate) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2364748B'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") no-repeat right 12px center;
+    background-size: 20px;
+    color: #F8FAFC;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 10px 36px 10px 16px;
+    font-weight: 600;
+    font-size: 0.95rem;
     outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.select-input:hover {
+    border-color: rgba(0, 255, 170, 0.5);
+    background-color: #1A1F29;
+}
+
+.select-input:focus {
+    border-color: var(--primary-neon);
+    box-shadow: 0 0 0 2px rgba(0, 255, 170, 0.2);
 }
 
 /* Wayin / OpusClip Ingest Preview Card */
@@ -989,23 +1009,23 @@ body {
 /* Commercial Style Customization Grid */
 .preset-controls-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 28px;
     margin-top: 28px;
     padding-top: 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .control-box {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
 .control-box label {
     font-size: 0.85rem;
     font-weight: 700;
-    color: var(--text-muted);
+    color: #94A3B8;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1016,24 +1036,28 @@ body {
 .preset-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
 }
 
 .chip-option {
-    background-color: var(--container-grey);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-muted);
-    padding: 8px 14px;
+    background-color: #141820;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #cbd5e1;
+    padding: 10px 16px;
     border-radius: 20px;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .chip-option:hover {
-    border-color: rgba(255, 255, 255, 0.3);
-    color: #FFF;
+    background-color: #1E293B;
+    border-color: rgba(255, 255, 255, 0.2);
     transform: translateY(-1px);
 }
 
