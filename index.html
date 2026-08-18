@@ -303,21 +303,21 @@
 
     <!-- Video Modal Preview -->
     <div class="modal-overlay" id="video-modal" onclick="closeVideoModal(event)">
-        <div class="modal-card" style="display: flex; max-width: 1000px; width: 95%; flex-direction: row; gap: 20px; align-items: stretch; background: var(--bg-card); padding: 20px; border-radius: 16px; position: relative;">
-            <button class="modal-close" onclick="closeVideoModalForce()" style="position: absolute; top: -15px; right: -15px; background: var(--bg-surface); color: #fff; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #333; z-index: 10;"><i class="fa-solid fa-xmark"></i></button>
+        <div class="modal-card" style="display: flex; max-width: 1000px; width: 95%; flex-direction: row; gap: 24px; align-items: stretch; background: #0B0E14; padding: 24px; border-radius: 20px; position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border: 1px solid rgba(255, 255, 255, 0.05);">
+            <button class="modal-close" onclick="closeVideoModalForce()" style="position: absolute; top: -16px; right: -16px; background: #1E293B; color: #fff; width: 36px; height: 36px; border-radius: 50%; border: 2px solid #0B0E14; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-xmark"></i></button>
             
             <!-- Left Side: Video Player -->
             <div class="video-section" style="flex: 1; display: flex; flex-direction: column;">
-                <div class="video-container" style="flex: 1; display: flex; flex-direction: column;">
-                    <video id="modal-video-player" controls autoplay loop style="max-height: 500px; width: auto; margin: 0 auto; border-radius: 12px 12px 0 0; background: #000; flex: 1;"></video>
+                <div class="video-container" style="flex: 1; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-radius: 12px; overflow: hidden;">
+                    <video id="modal-video-player" controls autoplay loop style="max-height: 500px; width: auto; margin: 0 auto; background: #000; flex: 1;"></video>
                     <!-- V3 Advanced Timeline Editor -->
-                    <div class="timeline-editor-container" style="background: #111; padding: 12px; border-radius: 0 0 12px 12px; border-top: 1px solid #333;">
+                    <div class="timeline-editor-container" style="background: #11141A; padding: 16px; border-top: 1px solid rgba(255,255,255,0.05);">
                         <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#888; margin-bottom:8px;">
                             <span>00:00</span>
                             <span id="timeline-duration">00:30</span>
                         </div>
-                        <div class="timeline-track" style="height: 24px; background: #222; border-radius: 4px; position: relative; overflow: hidden;">
-                            <div class="timeline-waveform" style="position:absolute; top:0; left:0; right:0; bottom:0; opacity:0.3; background-image: repeating-linear-gradient(90deg, transparent, transparent 2px, var(--primary-neon) 2px, var(--primary-neon) 4px);"></div>
+                        <div class="timeline-track" style="height: 28px; background: #1E293B; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);">
+                            <div class="timeline-waveform" style="position:absolute; top:0; left:0; right:0; bottom:0; opacity:0.4; background-image: repeating-linear-gradient(90deg, transparent, transparent 2px, var(--primary-neon) 2px, var(--primary-neon) 5px);"></div>
                             <div class="timeline-handle-left" style="position:absolute; left:10%; top:0; bottom:0; width:4px; background:#FFF; cursor:ew-resize;"></div>
                             <div class="timeline-handle-right" style="position:absolute; right:10%; top:0; bottom:0; width:4px; background:#FFF; cursor:ew-resize;"></div>
                             <div class="timeline-selection" style="position:absolute; left:10%; right:10%; top:0; bottom:0; background:rgba(0, 255, 170, 0.2);"></div>
@@ -327,22 +327,22 @@
             </div>
 
             <!-- Right Side: Interactive Transcript Editor -->
-            <div class="editor-section" style="flex: 1; display: flex; flex-direction: column; background: #1a1a1a; border-radius: 12px; border: 1px solid #333; overflow: hidden;">
+            <div class="editor-section" style="flex: 1; display: flex; flex-direction: column; background: #141820; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
                 <!-- Editor Tabs -->
-                <div class="editor-tabs" style="display: flex; border-bottom: 1px solid #333; background: #111;">
-                    <button type="button" class="editor-tab active" style="flex: 1; padding: 12px; background: transparent; color: var(--primary-neon); border: none; border-bottom: 2px solid var(--primary-neon); font-weight: 600; cursor: pointer;">Transcript</button>
-                    <button type="button" class="editor-tab" style="flex: 1; padding: 12px; background: transparent; color: #888; border: none; border-bottom: 2px solid transparent; font-weight: 600; cursor: pointer;">Style & Brand</button>
+                <div class="editor-tabs" style="display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: #0F1219;">
+                    <button type="button" class="editor-tab active" style="flex: 1; padding: 14px; background: transparent; color: var(--primary-neon); border: none; border-bottom: 2px solid var(--primary-neon); font-weight: 600; cursor: pointer; font-size: 0.95rem;">Transcript</button>
+                    <button type="button" class="editor-tab" style="flex: 1; padding: 14px; background: transparent; color: #64748B; border: none; border-bottom: 2px solid transparent; font-weight: 600; cursor: pointer; font-size: 0.95rem; transition: color 0.2s;">Style & Brand</button>
                 </div>
                 
                 <!-- Transcript Content -->
-                <div class="transcript-container" id="transcript-container" style="flex: 1; padding: 16px; overflow-y: auto; font-size: 1.1rem; line-height: 1.6; color: #ccc;">
+                <div class="transcript-container" id="transcript-container" style="flex: 1; padding: 20px; overflow-y: auto; font-family: 'Inter', sans-serif; font-size: 1.15rem; line-height: 1.8; color: #E2E8F0; letter-spacing: 0.2px;">
                     <!-- Words dynamically injected here -->
-                    <p style="text-align: center; color: #666; margin-top: 50px;">Loading AI Transcript...</p>
+                    <p style="text-align: center; color: #64748B; margin-top: 50px;">Loading AI Transcript...</p>
                 </div>
 
                 <!-- Export/Action Details -->
-                <div class="modal-details" style="padding: 16px; background: #111; border-top: 1px solid #333;">
-                    <h3 id="modal-clip-title" style="margin-bottom: 4px; font-size: 1rem;">Clip Preview</h3>
+                <div class="modal-details" style="padding: 20px; background: #0F1219; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                    <h3 id="modal-clip-title" style="margin-bottom: 6px; font-size: 1.05rem; color: #F8FAFC;">Clip Preview</h3>
                     <p id="modal-clip-desc" style="font-size: 0.8rem; color: #888; margin-bottom: 12px;">High retention video segment</p>
                     <div class="vizard-modal-actions" style="display: flex; gap: 8px;">
                         <button type="button" id="modal-download-btn" onclick="downloadClip()" class="btn-primary" style="flex: 1; text-align: center; padding: 8px; font-size: 0.9rem;">
