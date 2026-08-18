@@ -450,7 +450,11 @@ function pollJobStatus(jobId) {
             if (job.status === 'completed') {
                 clearInterval(pollingInterval);
                 hideProgress();
-                renderResults(job.result);
+                if (job.result && job.result.status === 'needs_review') {
+                    renderInteractiveWorkspace(job.result);
+                } else {
+                    renderResults(job.result);
+                }
             } else if (job.status === 'failed') {
                 clearInterval(pollingInterval);
                 showError(normalizeErrorMessage(job.error) || "Job processing failed.");
@@ -461,6 +465,103 @@ function pollJobStatus(jobId) {
             console.warn("Polling error:", e);
         }
     }, 2500);
+}
+
+// Interactive Editing Workspace
+let currentWorkspaceJob = null;
+
+function renderInteractiveWorkspace(resultData) {
+    currentWorkspaceJob = resultData;
+    document.getElementById('interactive-workspace').style.display = 'block';
+    
+    const list = document.getElementById('editor-clips-list');
+    list.innerHTML = '';
+    
+    if (!resultData || !resultData.clips || resultData.clips.length === 0) {
+        showError("No valid clips were generated for this video.");
+        return;
+    }
+    
+    resultData.clips.forEach((clip, index) => {
+        const card = document.createElement('div');
+        card.className = 'clip-card';
+        card.style = 'flex-direction: column; background: #11141A; padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); gap: 16px; margin-bottom: 24px; display: flex;';
+        
+        const fullTranscript = clip.captions.map(c => c.word).join(" ");
+        
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #FFF;">Clip ${index + 1}: ${escapeHtml(clip.title)}</h3>
+                <span class="score-badge"><i class="fa-solid fa-fire"></i> ${(clip.viralScore / 10).toFixed(1)}</span>
+            </div>
+            <div style="display: flex; gap: 16px;">
+                <div style="flex: 1;">
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Start Time (seconds)</label>
+                    <input type="number" step="0.1" value="${clip.startSec}" id="start-time-${index}" class="form-input" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div style="flex: 1;">
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">End Time (seconds)</label>
+                    <input type="number" step="0.1" value="${clip.endSec}" id="end-time-${index}" class="form-input" style="width: 100%; box-sizing: border-box;">
+                </div>
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Transcript (Edit to fix typos)</label>
+                <textarea id="transcript-${index}" class="form-input" style="width: 100%; height: 80px; resize: vertical; box-sizing: border-box;">${escapeHtml(fullTranscript)}</textarea>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+}
+
+async function submitRenderJob() {
+    if (!currentWorkspaceJob) return;
+    
+    // Collect the edited values
+    currentWorkspaceJob.clips.forEach((clip, index) => {
+        const start = parseFloat(document.getElementById(`start-time-${index}`).value);
+        const end = parseFloat(document.getElementById(`end-time-${index}`).value);
+        const transcriptText = document.getElementById(`transcript-${index}`).value;
+        
+        clip.startSec = start;
+        clip.endSec = end;
+        
+        const newWords = transcriptText.trim().split(/\\s+/);
+        const durationMs = Math.max(1, (end - start) * 1000);
+        const timePerWord = durationMs / Math.max(1, newWords.length);
+        
+        const newCaptions = newWords.map((w, i) => ({
+            word: w,
+            startMs: Math.round(i * timePerWord),
+            endMs: Math.round((i + 1) * timePerWord)
+        }));
+        
+        clip.captions = newCaptions;
+    });
+    
+    document.getElementById('interactive-workspace').style.display = 'none';
+    showProgress("Initializing Render Engine...", 0);
+    
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Render start failed: ${errText}`);
+        }
+        
+        const data = await response.json();
+        if (data.job_id) {
+            pollJobStatus(data.job_id);
+        } else {
+            throw new Error("Invalid response from render engine.");
+        }
+    } catch (err) {
+        showError(err.message || "Failed to start rendering job.");
+    }
 }
 
 // Render Clips Gallery Results (Vizard.ai Card Design)

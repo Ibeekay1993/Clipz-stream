@@ -212,6 +212,24 @@
                     <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
+                <!-- Interactive Workspace Section -->
+                <section class="interactive-workspace" id="interactive-workspace" style="display: none;">
+                    <div class="results-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                        <h2><i class="fa-solid fa-pen-nib text-neon"></i> AI Editing Workspace</h2>
+                        <p style="color: #888; font-size: 0.9rem;">Review your viral clips, correct transcript typos, and adjust timestamps before rendering.</p>
+                    </div>
+                    
+                    <div class="editor-clips-list" id="editor-clips-list" style="display: flex; flex-direction: column; gap: 24px; margin-top: 20px;">
+                        <!-- JS injected editors -->
+                    </div>
+
+                    <div style="margin-top: 30px; display: flex; justify-content: flex-end;">
+                        <button class="btn-primary" onclick="submitRenderJob()" style="padding: 14px 28px; font-size: 1.05rem; box-shadow: 0 4px 20px rgba(0, 255, 170, 0.3);">
+                            <i class="fa-solid fa-film"></i> Export Final MP4s
+                        </button>
+                    </div>
+                </section>
+
                 <!-- Results Gallery Section -->
                 <section class="results-section" id="results-section" style="display: none;">
                     <div class="results-header">
