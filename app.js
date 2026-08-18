@@ -24,7 +24,53 @@ document.addEventListener('DOMContentLoaded', () => {
             fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w');
         });
     }
+
+    startCountdown();
 });
+
+// Top Banner Countdown Logic
+function startCountdown() {
+    let timeLeft = 23 * 3600 + 57 * 60 + 0; // 23h 57m 00s
+    const hEl = document.getElementById('cd-h');
+    const mEl = document.getElementById('cd-m');
+    const sEl = document.getElementById('cd-s');
+
+    if (!hEl || !mEl || !sEl) return;
+
+    setInterval(() => {
+        if (timeLeft <= 0) return;
+        timeLeft--;
+        const h = Math.floor(timeLeft / 3600);
+        const m = Math.floor((timeLeft % 3600) / 60);
+        const s = timeLeft % 60;
+        
+        hEl.innerText = h < 10 ? '0' + h : h;
+        mEl.innerText = m < 10 ? '0' + m : m;
+        sEl.innerText = s < 10 ? '0' + s : s;
+    }, 1000);
+}
+
+// Auth Modal Logic
+function openAuthModal() {
+    document.getElementById('auth-modal').style.display = 'flex';
+}
+
+function closeAuthModal(e) {
+    if (e.target.id === 'auth-modal') {
+        closeAuthModalForce();
+    }
+}
+
+function closeAuthModalForce() {
+    document.getElementById('auth-modal').style.display = 'none';
+}
+
+function mockAuthLogin() {
+    alert("Thanks for signing up! Your clips will now be saved to your workspace.");
+    closeAuthModalForce();
+    const banner = document.getElementById('top-countdown-banner');
+    if (banner) banner.style.display = 'none';
+}
 
 async function checkCapabilities() {
     try {
@@ -619,12 +665,12 @@ function renderResults(resultData) {
                 </div>
 
                 <div class="clip-actions" style="display:flex; gap:8px;">
-                    <a href="${clipUrl}" download target="_blank" class="btn-primary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;">
-                        <i class="fa-solid fa-download"></i> Save
-                    </a>
-                    <button type="button" class="btn-secondary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;" onclick="shareClip('${escapeHtml(clipTitle)}', '${clipUrl}')">
-                        <i class="fa-brands fa-tiktok"></i> Share
+                    <button type="button" class="btn-secondary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center; background: rgba(120,40,230,0.2); color: #B388FF; border: 1px solid rgba(120,40,230,0.5); transition: all 0.2s;" onclick="shareClip('${escapeHtml(clipTitle)}', '${clipUrl}')">
+                        <i class="fa-solid fa-paper-plane"></i> Publish
                     </button>
+                    <a href="${clipUrl}" download target="_blank" class="btn-primary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #FFF; transition: all 0.2s;">
+                        <i class="fa-solid fa-download"></i> Download
+                    </a>
                 </div>
             </div>
         `;
@@ -754,14 +800,27 @@ async function downloadClip() {
 
 // Social Share Logic
 function shareClip(title, url) {
+    // If url is relative or missing, fallback to current window href
+    const fullUrl = url && url.startsWith('http') ? url : window.location.href;
+    
     if (navigator.share) {
         navigator.share({
             title: title,
-            text: `Check out this viral clip: ${title}\n\n#viral #fyp #podcast`,
-            url: url
-        }).catch(err => console.warn('Share failed:', err));
+            text: `Check out this viral clip: ${title}\\n\\n#viral #fyp #podcast`,
+            url: fullUrl
+        }).catch(err => {
+            console.warn('Share API failed, falling back to clipboard:', err);
+            fallbackShare(fullUrl);
+        });
     } else {
-        navigator.clipboard.writeText(url);
-        alert('Share link copied to clipboard! Paste it on your social media.');
+        fallbackShare(fullUrl);
     }
+}
+
+function fallbackShare(url) {
+    navigator.clipboard.writeText(url).then(() => {
+        alert('Publish link copied to clipboard! Paste it on your social media.');
+    }).catch(() => {
+        alert('Unable to copy link to clipboard.');
+    });
 }

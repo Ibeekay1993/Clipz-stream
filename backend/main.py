@@ -62,7 +62,8 @@ def worker_loop(directories, max_age, interval):
 
 @app.on_event("startup")
 async def startup_event():
-    threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 1800, 300), daemon=True).start()
+    # Run cleanup worker: keep files for 48 hours (172800s), check every hour (3600s)
+    threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 172800, 3600), daemon=True).start()
     if not supabase:
         logger.warning("Supabase credentials not found. Clips will be served locally instead of CDN.")
 
@@ -72,6 +73,10 @@ async def startup_event():
 class ProcessRequest(BaseModel):
     url: str
     num_clips: int = 3
+
+class RenderRequest(BaseModel):
+    url: str
+    clips: List[dict]
 
 class IngestionBlockedError(Exception):
     """Raised when YouTube refuses the download (bot check / login wall / geo-block)."""
@@ -950,41 +955,23 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
-    logger.info("Transcoding and uploading clips in parallel...")
-    clips_out = [None] * len(chosen_chunks)
-
-    import concurrent.futures
-
-    def process_single_chunk(index_and_tuple):
-        i, (chunk, title_text) = index_and_tuple
-        fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
-        fpath = os.path.join(CLIPS_DIR, fname)
-        try:
-            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words, burn_captions=burn_captions)
-            if clip_url.startswith("/clips/"):
-                clip_url = f"{base}{clip_url}"
-                
-            off = chunk.words[0]["startMs"]
-            captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
-            t_clean = title_text
-            return i, {
-                "title": t_clean, "startSec": int(chunk.start), "endSec": int(chunk.end),
-                "viralScore": chunk.score, "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
-                "brollQuery": chunk.broll_query,
-                "captions": captions, "clipUrl": clip_url, "clip_url": clip_url,
-                "hookType": chunk.hook, "allReasons": chunk.reasons, "durationSec": round(chunk.duration, 1),
-            }
-        except Exception as e:
-            logger.error(f"Failed to transcode chunk {i}: {e}")
-            return i, None
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(chosen_chunks))) as executor:
-        futures = [executor.submit(process_single_chunk, (i, chunk_tuple)) for i, chunk_tuple in enumerate(chosen_chunks)]
-        for future in concurrent.futures.as_completed(futures):
-            idx, res_data = future.result()
-            if res_data:
-                clips_out[idx] = res_data
+    update_job(50, "Analysis Complete. Awaiting User Edits...")
+    clips_out = []
+    for i, (chunk, title_text) in enumerate(chosen_chunks):
+        off = chunk.words[0]["startMs"] if chunk.words else 0
+        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+        clips_out.append({
+            "id": i,
+            "title": title_text,
+            "startSec": int(chunk.start),
+            "endSec": int(chunk.end),
+            "viralScore": chunk.score or 85,
+            "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
+            "captions": captions,
+            "hookType": chunk.hook,
+            "durationSec": round(chunk.duration, 1),
+            "vpath": vpath # Store vpath so the render endpoint knows what to render
+        })
 
     clips_out = [c for c in clips_out if c is not None]
 
@@ -1067,43 +1054,27 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
                 "endMs": max(80, int(w["endMs"] - (section_start * 1000))),
             })
 
-        fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
-        fpath = os.path.join(CLIPS_DIR, fname)
-        local_start = max(0.0, chunk.start - section_start)
-        local_end = max(local_start + 3.0, chunk.end - section_start)
-        
-        # Hardcode automated Subtitles ON
-        clip_url = transcode_and_upload(section_path, local_start, local_end, fpath, words=adjusted_words, burn_captions=True)
-        if clip_url.startswith("/clips/"):
-            clip_url = f"{base}{clip_url}"
-
-        captions = [{"word": w["word"], "startMs": w["startMs"], "endMs": w["endMs"]} for w in adjusted_words]
-        return i, {
+    update_job(50, "Analysis Complete. Awaiting User Edits...")
+    clips_out = []
+    for i, (chunk, title_text) in enumerate(chosen_chunks):
+        off = chunk.words[0]["startMs"] if chunk.words else 0
+        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+        clips_out.append({
+            "id": i,
             "title": title_text,
             "startSec": int(chunk.start),
             "endSec": int(chunk.end),
             "viralScore": chunk.score or 85,
             "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement caption segment",
             "captions": captions,
-            "clipUrl": clip_url,
-            "clip_url": clip_url,
             "hookType": chunk.hook,
-            "allReasons": chunk.reasons,
             "durationSec": round(chunk.duration, 1),
-        }
-
-    update_job(30, "Parallel downloading and rendering all clips concurrently...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(chosen_chunks))) as executor:
-        futures = {executor.submit(process_youtube_clip, i, chunk, title): i for i, (chunk, title) in enumerate(chosen_chunks)}
-        for future in concurrent.futures.as_completed(futures):
-            idx, res_data = future.result()
-            if res_data:
-                clips_out[idx] = res_data
+            "vpath": url # Since it's a URL, we pass the URL so the render job knows to download the section
+        })
 
     clips_out = [c for c in clips_out if c is not None]
 
-    update_job(100, "Complete")
-    return {"url": url, "duration": words[-1]["endMs"] / 1000.0, "clips": clips_out}
+    return {"url": url, "duration": words[-1]["endMs"] / 1000.0 if words else 0, "clips": clips_out, "status": "needs_review"}
 
 
 def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
@@ -1133,6 +1104,66 @@ def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
         logger.error(f"URL job {job_id} failed: {e}")
         push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
 
+def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
+    try:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        is_yt = is_youtube_url(url)
+        vpath = url if is_yt else url
+        
+        def update_job(prog: int, step: str):
+            push_job_update(job_id, prog, step)
+            
+        update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
+        clips_out = [None] * len(clips)
+        
+        def process_clip(i, clip):
+            fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
+            fpath = os.path.join(CLIPS_DIR, fname)
+            try:
+                if is_yt:
+                    section_start = max(0.0, float(clip['startSec']) - 2.0)
+                    section_end = float(clip['endSec']) + 2.0
+                    sec_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i)
+                    adj_start = float(clip['startSec']) - section_start
+                    adj_end = float(clip['endSec']) - section_start
+                    
+                    w_adjusted = []
+                    for w in clip['captions']:
+                        w_copy = w.copy()
+                        w_copy["startMs"] = w["startMs"]
+                        w_copy["endMs"] = w["endMs"]
+                        w_adjusted.append(w_copy)
+                        
+                    clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True)
+                else:
+                    clip_url = transcode_and_upload(vpath, float(clip['startSec']), float(clip['endSec']), fpath, words=clip['captions'], burn_captions=True)
+                
+                if clip_url.startswith("/clips/"):
+                    clip_url = f"{base}{clip_url}"
+                clip['clip_url'] = clip_url
+                clip['clipUrl'] = clip_url
+                return i, clip
+            except Exception as e:
+                logger.error(f"Failed to transcode chunk {i}: {e}")
+                return i, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(clips))) as executor:
+            futures = {executor.submit(process_clip, i, c): i for i, c in enumerate(clips)}
+            for future in concurrent.futures.as_completed(futures):
+                idx, res_data = future.result()
+                if res_data:
+                    clips_out[idx] = res_data
+        
+        clips_out = [c for c in clips_out if c is not None]
+        res = {"url": url, "duration": 0, "clips": clips_out, "status": "completed"}
+        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
+    except Exception as e:
+        logger.error(f"Render job {job_id} failed: {e}")
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+
 def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str):
     try:
         import asyncio
@@ -1157,6 +1188,27 @@ async def process_video_api(body: ProcessRequest, request: Request):
 
 run_background_job_modal = None
 run_background_upload_job_modal = None
+run_background_render_job_modal = None
+
+@app.post("/api/jobs/render")
+async def create_render_job_api(body: RenderRequest, request: Request = None):
+    if not body.clips: raise HTTPException(400, "Clips cannot be empty")
+    base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
+    job_id = uuid.uuid4().hex[:12]
+    
+    push_job_update(
+        job_id=job_id,
+        progress=50,
+        current_step="Applying your edits and rendering 1080p clips...",
+        status="processing"
+    )
+    
+    if run_background_render_job_modal:
+        run_background_render_job_modal.spawn(job_id, body.url, body.clips, base)
+    else:
+        logger.error("Modal background function not initialized!")
+
+    return {"job_id": job_id, "status": "processing"}
 
 @app.post("/api/jobs/create")
 async def create_job_api(body: ProcessRequest, request: Request = None):
@@ -1297,6 +1349,16 @@ try:
     )
     def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
         execute_job_bg(job_id, vpath, filename, num_clips, base_url)
+
+    @modal_app.function(
+        image=image, 
+        timeout=600, 
+        cpu=2.0, 
+        secrets=secrets_list, 
+        volumes={"/root/storage": modal_volume_instance}
+    )
+    def run_background_render_job_modal(job_id: str, url: str, clips: list, base_url: str):
+        execute_render_job_bg(job_id, url, clips, base_url)
 
     @modal_app.function(
         image=image, 

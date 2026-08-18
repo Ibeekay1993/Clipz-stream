@@ -15,6 +15,17 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <!-- Top Countdown Banner -->
+    <div class="top-countdown-banner" id="top-countdown-banner" style="background: rgba(255, 60, 60, 0.1); border-bottom: 1px solid rgba(255, 60, 60, 0.2); padding: 12px 20px; display: flex; justify-content: center; align-items: center; gap: 16px; font-family: 'Inter', sans-serif;">
+        <div class="countdown-timer" id="countdown-timer" style="color: #FF4A4A; font-weight: 700; font-size: 1.1rem; letter-spacing: 1px; display: flex; align-items: center; gap: 4px;">
+            <span id="cd-h">23</span><span style="font-size: 0.8rem; font-weight: 500;">h</span> : <span id="cd-m">57</span><span style="font-size: 0.8rem; font-weight: 500;">m</span> : <span id="cd-s">00</span><span style="font-size: 0.8rem; font-weight: 500;">s</span>
+        </div>
+        <div class="countdown-text" style="color: #E2E8F0; font-size: 0.95rem;">
+            Project will be archived in 24 hours. Sign up now to save your project.
+        </div>
+        <button class="btn-primary" onclick="openAuthModal()" style="padding: 6px 16px; font-size: 0.85rem; border-radius: 6px; background: #FF4A4A; color: white; border: none; box-shadow: 0 4px 10px rgba(255, 74, 74, 0.3);">Sign up</button>
+    </div>
+
     <!-- Main Navigation Bar -->
     <header class="navbar">
         <div class="nav-container">
@@ -322,6 +333,48 @@
             <span>Clips</span>
         </button>
     </nav>
+
+    <!-- Auth Modal -->
+    <div class="modal-overlay" id="auth-modal" onclick="closeAuthModal(event)" style="display: none; z-index: 2000;">
+        <div class="modal-card" style="max-width: 420px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+            <button class="modal-close" onclick="closeAuthModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
+            
+            <div style="text-align: center; margin-bottom: 24px;">
+                <h2 style="color: #FFF; font-size: 1.5rem; margin-bottom: 8px;">Create an account</h2>
+                <p style="color: #888; font-size: 0.9rem;">Save your clips and access them forever.</p>
+            </div>
+
+            <button class="btn-secondary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 24px; background: #1E293B; border: 1px solid rgba(255,255,255,0.1); color: #FFF; transition: all 0.2s; cursor: pointer;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" style="width: 18px; height: 18px;">
+                Continue with Google
+            </button>
+
+            <div style="display: flex; align-items: center; margin-bottom: 24px;">
+                <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.1);"></div>
+                <div style="padding: 0 12px; color: #64748B; font-size: 0.8rem; font-weight: 600;">OR</div>
+                <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.1);"></div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+                <div>
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Work Email</label>
+                    <input type="email" placeholder="name@company.com" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Password</label>
+                    <input type="password" placeholder="••••••••" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px rgba(0, 255, 170, 0.2);">
+                Sign Up
+            </button>
+
+            <p style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 24px;">
+                Already have an account? <a href="#" style="color: var(--primary-neon); text-decoration: none;">Log in</a>
+            </p>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="footer">
