@@ -112,26 +112,6 @@ function submitWizardJob() {
 }
 
 let pollingInterval = null;
-let currentCaptionStyle = "opus";
-let currentAspectRatio = "9:16";
-
-function selectCaptionStyle(btn, styleName) {
-    document.querySelectorAll('#caption-style-chips .chip-option').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentCaptionStyle = styleName;
-}
-
-function selectAspectRatio(btn, ratio) {
-    document.querySelectorAll('#aspect-ratio-chips .chip-option').forEach(el => el.classList.remove('active'));
-    btn.classList.add('active');
-    console.log("Aspect ratio set to: " + ratio);
-}
-
-function toggleBRoll(btn, isEnabled) {
-    document.querySelectorAll('#broll-chips .chip-option').forEach(el => el.classList.remove('active'));
-    btn.classList.add('active');
-    console.log("AI B-Roll Generator: " + (isEnabled ? "ON" : "OFF"));
-}
 
 function switchMobileTab(tabName) {
     document.querySelectorAll('.mobile-nav-item').forEach(btn => btn.classList.remove('active'));
