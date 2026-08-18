@@ -92,6 +92,11 @@ function goToWizardStep(stepNum) {
         }
     });
 
+    const header = document.querySelector('.hero-header');
+    if (header) {
+        header.style.display = stepNum > 1 ? 'none' : 'block';
+    }
+
     const clipper = document.getElementById('clipper');
     if (clipper) clipper.scrollIntoView({ behavior: 'smooth' });
 }
