@@ -1007,6 +1007,13 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     if not clips_out:
         raise Exception("No clips could be rendered into MP4 output.")
 
+    if modal_volume:
+        try:
+            modal_volume.commit()
+            logger.info("Committed modal_volume after all clips transcoded in run_pipeline.")
+        except Exception as ve:
+            logger.warning(f"Modal volume commit note in run_pipeline: {ve}")
+
     result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else get_duration(vpath), "clips": clips_out, "status": "completed"}
     logger.info(f"Pipeline completed successfully. Rendered {len(clips_out)} clips.")
     update_job(100, "Complete")
