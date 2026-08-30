@@ -318,31 +318,27 @@ function toggleCaptions(enabled) {
 
 // Progress & Error Utilities
 function showProgress(stepMsg, pct) {
+    const clampedPct = Math.max(0, Math.min(100, Number(pct) || 0));
     document.getElementById('progress-card').style.display = 'block';
     document.getElementById('error-card').style.display = 'none';
     document.getElementById('results-section').style.display = 'none';
     document.getElementById('progress-step').innerText = stepMsg;
-    document.getElementById('progress-pct').innerText = `${pct}%`;
-    document.getElementById('progress-bar-fill').style.width = `${pct}%`;
+    document.getElementById('progress-pct').innerText = `${clampedPct}%`;
+    document.getElementById('progress-bar-fill').style.width = `${clampedPct}%`;
 
-    // Dynamically update Vizard level indicators
-    const lvl1 = document.getElementById('vizard-lvl-1');
-    const lvl2 = document.getElementById('vizard-lvl-2');
-    const lvl3 = document.getElementById('vizard-lvl-3');
-
-    if (pct < 35) {
-        if (lvl1) lvl1.className = "vizard-level-item active";
-        if (lvl2) lvl2.className = "vizard-level-item";
-        if (lvl3) lvl3.className = "vizard-level-item";
-    } else if (pct < 65) {
-        if (lvl1) lvl1.className = "vizard-level-item active";
-        if (lvl2) lvl2.className = "vizard-level-item active";
-        if (lvl3) lvl3.className = "vizard-level-item";
-    } else {
-        if (lvl1) lvl1.className = "vizard-level-item active";
-        if (lvl2) lvl2.className = "vizard-level-item active";
-        if (lvl3) lvl3.className = "vizard-level-item active";
-    }
+    [1, 2, 3, 4, 5].forEach((level) => {
+        const item = document.getElementById(`vizard-lvl-${level}`);
+        if (!item) return;
+        const threshold = [5, 25, 50, 70, 90][level - 1];
+        item.classList.toggle('active', clampedPct >= threshold);
+        item.classList.toggle('complete', clampedPct >= Math.min(100, threshold + 15));
+        const icon = item.querySelector('.level-icon');
+        if (icon) {
+            icon.className = clampedPct >= threshold
+                ? 'fa-solid fa-circle-check level-icon text-neon'
+                : 'fa-solid fa-circle level-icon text-muted';
+        }
+    });
 }
 
 function hideProgress() {
@@ -619,10 +615,25 @@ function renderResults(resultData) {
         return;
     }
 
-    document.getElementById('clips-total-badge').innerText = `${resultData.clips.length} Clips Ready`;
-    window.currentClips = resultData.clips;
+    const playableClips = resultData.clips.filter((clip) => Boolean(clip.clipUrl || clip.clip_url));
+    const pendingClips = resultData.clips.length - playableClips.length;
 
-    resultData.clips.forEach((clip, index) => {
+    if (playableClips.length === 0 && resultData.status === 'needs_review') {
+        renderInteractiveWorkspace(resultData);
+        return;
+    }
+
+    if (playableClips.length === 0) {
+        showError("The AI found clip moments, but no downloadable MP4 was returned yet. Please export the final MP4s before downloading.");
+        return;
+    }
+
+    document.getElementById('clips-total-badge').innerText = pendingClips > 0
+        ? `${playableClips.length} Ready / ${pendingClips} Needs Export`
+        : `${playableClips.length} Clips Ready`;
+    window.currentClips = playableClips;
+
+    playableClips.forEach((clip, index) => {
         const rawClipUrl = clip.clipUrl || clip.clip_url || '';
         const clipUrl = rawClipUrl ? (rawClipUrl.startsWith('/') ? `${MODAL_BASE_URL}${rawClipUrl}` : rawClipUrl) : '';
         const viralScore = clip.viralScore || 95;
