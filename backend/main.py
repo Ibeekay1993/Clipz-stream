@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Optional, Any
 from enum import Enum
 import threading
 import logging
+import concurrent.futures
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
@@ -994,7 +995,6 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.error(f"Failed to render selected chunk {i}: {e}")
             return i, None
 
-    import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, max(1, len(chosen_chunks)))) as executor:
         futures = [executor.submit(process_selected_chunk, item) for item in enumerate(chosen_chunks)]
         for future in concurrent.futures.as_completed(futures):
