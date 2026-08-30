@@ -409,7 +409,8 @@ def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
     """Last-resort segmentation so uploads still produce downloadable clips."""
     duration = get_duration(video_path) or 60.0
     clip_count = max(1, min(max_clips, 8))
-    clip_len = min(30.0, max(10.0, duration / clip_count))
+    min_len = 5.0 if duration >= clip_count * 5.0 else max(2.0, duration / clip_count)
+    clip_len = min(30.0, max(min_len, duration / clip_count))
     chunks: List[Chunk] = []
     start = 0.0
     while start < duration and len(chunks) < clip_count:
@@ -506,7 +507,7 @@ def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 
 
 def score(c: Chunk) -> Chunk:
     tl = c.text.lower(); dur = c.duration; pts = 70; reasons = ["High-retention speech hook"]; hook = Hook.GENERAL
-    if not (10 <= dur <= 90):
+    if not (5 <= dur <= 90):
         c.score = 0; c.viable = False; return c
 
     T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
@@ -522,11 +523,28 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel: List[Chunk] = []; used: List[tuple] = []
     for c in pool:
         if len(sel) >= n: break
-        # Smart Deduplication: ensure minimum 5.0 second gap between clips
-        if any(not (c.end + 5.0 < s or c.start - 5.0 > e) for s, e in used): continue
+        # Avoid duplicate overlapping clips while allowing adjacent requested clips.
+        if any(max(c.start, s) < min(c.end, e) for s, e in used): continue
         sel.append(c); used.append((c.start, c.end))
     sel.sort(key=lambda x: x.start)
     return sel
+
+def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: int, candidates: List[Chunk] = None) -> List[Tuple[Chunk, str]]:
+    if len(chosen) >= n:
+        return chosen[:n]
+    existing = [(c.start, c.end) for c, _ in chosen]
+    fallback_pool = candidates or build_uniform_chunks(video_path, n)
+    for fallback in fallback_pool:
+        if len(chosen) >= n:
+            break
+        overlaps = any(max(fallback.start, s) < min(fallback.end, e) for s, e in existing)
+        if overlaps:
+            continue
+        chosen.append((fallback, fallback.title()))
+        existing.append((fallback.start, fallback.end))
+    if len(chosen) < n:
+        logger.warning(f"Requested {n} clips but only {len(chosen)} non-overlapping clips could be selected.")
+    return chosen
 
 def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str):
     """Generates an ASS subtitle file with OpusClip/Vizard clean typography and neon green active word highlighting"""
@@ -595,9 +613,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # TIER 3: DELIVERY LAYER (FFmpeg OpenCV Face-Tracking Crop & Supabase)
 # ============================================================================
 def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fps: float = 2.0) -> list:
-    """Sample video frames between start_sec and end_sec, detect faces with OpenCV Haar Cascade, return [(t_rel, norm_x)]"""
+    """Track the most likely active speaker face center for dynamic 9:16 crops."""
     try:
         import cv2
+        import numpy as np
         if not os.path.exists(vpath): return []
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         if not os.path.exists(cascade_path): return []
@@ -616,6 +635,8 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         current_frame = start_frame
         points = []
+        prev_gray = None
+        tracked_x = None
 
         while current_frame <= end_frame:
             ret, frame = cap.read()
@@ -624,10 +645,31 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60))
             if len(faces) > 0:
-                largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
-                x, y, w, h = largest_face
+                frame_area = float(frame.shape[0] * frame.shape[1])
+                best = None
+                for x, y, w, h in faces:
+                    center_x = (x + w / 2.0) / width
+                    size_score = min(1.0, (w * h) / max(1.0, frame_area * 0.12))
+                    center_score = 1.0 - min(1.0, abs(center_x - 0.5) * 2.0)
+                    continuity_score = 1.0 - min(1.0, abs(center_x - tracked_x) * 3.0) if tracked_x is not None else center_score
+                    motion_score = 0.0
+                    if prev_gray is not None:
+                        mouth_y1 = y + int(h * 0.55)
+                        mouth_y2 = min(gray.shape[0], y + h)
+                        mouth_x1 = max(0, x)
+                        mouth_x2 = min(gray.shape[1], x + w)
+                        curr_roi = gray[mouth_y1:mouth_y2, mouth_x1:mouth_x2]
+                        prev_roi = prev_gray[mouth_y1:mouth_y2, mouth_x1:mouth_x2]
+                        if curr_roi.size and prev_roi.shape == curr_roi.shape:
+                            motion_score = min(1.0, float(np.mean(cv2.absdiff(curr_roi, prev_roi))) / 18.0)
+                    score_val = (continuity_score * 0.45) + (motion_score * 0.30) + (center_score * 0.15) + (size_score * 0.10)
+                    if best is None or score_val > best[0]:
+                        best = (score_val, x, y, w, h)
+                _, x, y, w, h = best
                 center_x_norm = (x + w / 2.0) / width
+                tracked_x = center_x_norm
                 points.append((t_rel, center_x_norm))
+            prev_gray = gray
             current_frame += frame_step
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
         cap.release()
@@ -1026,6 +1068,8 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
+    chosen_chunks = fill_requested_chunks(chosen_chunks, vpath, n)
+
     update_job(55, "Rendering downloadable MP4 clips...")
     clips_out = [None] * len(chosen_chunks)
 
@@ -1137,6 +1181,8 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
                 break
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
+
+    chosen_chunks = fill_requested_chunks(chosen_chunks, "", n, candidates=chunks)
 
     if not chosen_chunks:
         raise Exception("No viable caption segments selected.")
