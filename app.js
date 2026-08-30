@@ -5,7 +5,9 @@ let selectedFile = null;
 let currentWizardStep = 1;
 
 document.addEventListener('DOMContentLoaded', () => {
-    checkCapabilities();
+    loadBackendCapabilities();
+    switchTab('file');
+    startCountdown();
 
     const btnNext = document.getElementById('btn-goto-step2');
     if (btnNext) {
@@ -15,22 +17,11 @@ document.addEventListener('DOMContentLoaded', () => {
             goToWizardStep(2);
         });
     }
-
-    const sampleBtn = document.getElementById('btn-sample-lex');
-    if (sampleBtn) {
-        sampleBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w');
-        });
-    }
-
-    startCountdown();
 });
 
 // Top Banner Countdown Logic
 function startCountdown() {
-    let timeLeft = 23 * 3600 + 57 * 60 + 0; // 23h 57m 00s
+    let timeLeft = 23 * 3600 + 57 * 60;
     const hEl = document.getElementById('cd-h');
     const mEl = document.getElementById('cd-m');
     const sEl = document.getElementById('cd-s');
@@ -43,7 +34,7 @@ function startCountdown() {
         const h = Math.floor(timeLeft / 3600);
         const m = Math.floor((timeLeft % 3600) / 60);
         const s = timeLeft % 60;
-        
+
         hEl.innerText = h < 10 ? '0' + h : h;
         mEl.innerText = m < 10 ? '0' + m : m;
         sEl.innerText = s < 10 ? '0' + s : s;
@@ -52,7 +43,8 @@ function startCountdown() {
 
 // Auth Modal Logic
 function openAuthModal() {
-    document.getElementById('auth-modal').style.display = 'flex';
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.style.display = 'flex';
 }
 
 function closeAuthModal(e) {
@@ -62,59 +54,74 @@ function closeAuthModal(e) {
 }
 
 function closeAuthModalForce() {
-    document.getElementById('auth-modal').style.display = 'none';
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.style.display = 'none';
 }
 
 function mockAuthLogin() {
-    alert("Thanks for signing up! Your clips will now be saved to your workspace.");
+    alert("Thanks for signing up. Your clips will now be saved to your workspace.");
     closeAuthModalForce();
     const banner = document.getElementById('top-countdown-banner');
     if (banner) banner.style.display = 'none';
 }
 
-async function checkCapabilities() {
+async function loadBackendCapabilities() {
     try {
-        const resp = await fetch(`${MODAL_BASE_URL}/api/capabilities`);
-        if (resp.ok) {
-            const data = await resp.json();
-            if (!data.youtube_link_import_enabled) {
-                const note = document.getElementById('youtube-capability-note');
-                if (note) note.style.display = 'flex';
-            }
+        const response = await fetch(`${MODAL_BASE_URL}/api/capabilities`, { cache: "no-store" });
+        if (!response.ok) return;
+        const capabilities = await response.json();
+        const note = document.getElementById('youtube-capability-note');
+        const ytButton = document.getElementById('tab-youtube-btn');
+
+        if (capabilities.youtube_link_import_enabled === false) {
+            if (note) note.style.display = 'flex';
+            if (ytButton) ytButton.classList.add('limited');
+            switchTab('file');
+        } else {
+            if (note) note.style.display = 'none';
+            if (ytButton) ytButton.classList.remove('limited');
         }
-    } catch (e) {
-        console.warn("Capabilities check skipped:", e);
+    } catch (err) {
+        console.warn('Capability check failed:', err);
     }
+}
+
+function getActiveImportTab() {
+    const activeTab = document.querySelector('.tab-btn.active');
+    return activeTab ? activeTab.id : 'tab-file-btn';
 }
 
 function goToWizardStep(stepNum) {
     if (stepNum === 2) {
-        const urlInput = document.getElementById('yt-url-input');
-        let url = urlInput ? urlInput.value.trim() : '';
+        const activeTab = getActiveImportTab();
+        const card = document.getElementById('video-ingest-card');
 
-        if (!url && !selectedFile) {
-            showError("Please enter a valid YouTube URL or upload a file.");
-            return;
-        }
-
-        if (url) {
+        if (activeTab === 'tab-file-btn') {
+            if (!selectedFile) {
+                showError("Please upload a video file first.");
+                return;
+            }
+            document.getElementById('video-preview-title').innerText = selectedFile.name;
+            document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024 * 1024)).toFixed(1)}MB`;
+            document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
+            if (card) card.style.display = 'flex';
+        } else {
+            const urlInput = document.getElementById('yt-url-input');
+            const url = urlInput ? urlInput.value.trim() : '';
+            if (!url) {
+                showError("Please paste a YouTube URL first, or switch to Upload Video File.");
+                return;
+            }
             const ytId = extractYoutubeId(url);
             if (!ytId) {
-                showError("Invalid YouTube URL. Please check the link and try again.");
+                showError("Invalid YouTube URL. Please check the link or upload the video file directly.");
                 return;
             }
             document.getElementById('video-preview-thumb').src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
             document.getElementById('video-preview-title').innerText = "YouTube Video Stream";
-            document.getElementById('video-preview-author').innerText = "Verified Media Channel";
-            const card = document.getElementById('video-ingest-card');
+            document.getElementById('video-preview-author').innerText = "Waiting for cloud import";
             if (card) card.style.display = 'flex';
             try { onUrlInputChange(url); } catch (e) {}
-        } else if (selectedFile) {
-            document.getElementById('video-preview-title').innerText = selectedFile.name;
-            document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024*1024)).toFixed(1)}MB`;
-            document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
-            const card = document.getElementById('video-ingest-card');
-            if (card) card.style.display = 'flex';
         }
     }
 
@@ -139,34 +146,42 @@ function goToWizardStep(stepNum) {
     });
 
     const header = document.querySelector('.hero-header');
-    if (header) {
-        header.style.display = stepNum > 1 ? 'none' : 'block';
-    }
+    if (header) header.style.display = stepNum > 1 ? 'none' : 'block';
 
     const clipper = document.getElementById('clipper');
     if (clipper) clipper.scrollIntoView({ behavior: 'smooth' });
 }
 
 function submitWizardJob() {
-    goToWizardStep(3);
+    const activeTab = getActiveImportTab();
+
+    if (activeTab === 'tab-file-btn') {
+        if (!selectedFile) {
+            showError("Please upload a video file first.");
+            goToWizardStep(1);
+            return;
+        }
+        goToWizardStep(3);
+        handleFileUploadSubmit();
+        return;
+    }
+
     const urlInput = document.getElementById('yt-url-input');
     const url = urlInput ? urlInput.value.trim() : '';
-
-    if (url) {
-        const fakeEvent = { preventDefault: () => {} };
-        handleYoutubeSubmit(fakeEvent);
-    } else if (selectedFile) {
-        handleFileUploadSubmit();
-    } else {
-        showError("Please provide a valid YouTube link or video file.");
+    if (!url) {
+        showError("Please paste a YouTube URL first, or use Upload Video File.");
+        goToWizardStep(1);
+        return;
     }
+    goToWizardStep(3);
+    handleYoutubeSubmit({ preventDefault: () => {} });
 }
 
 let pollingInterval = null;
 
 function switchMobileTab(tabName) {
     document.querySelectorAll('.mobile-nav-item').forEach(btn => btn.classList.remove('active'));
-    
+
     if (tabName === 'import') {
         const item = document.getElementById('mobile-nav-import');
         if (item) item.classList.add('active');
@@ -184,23 +199,6 @@ function switchMobileTab(tabName) {
     }
 }
 
-async function loadBackendCapabilities() {
-    try {
-        const response = await fetch(`${MODAL_BASE_URL}/api/capabilities`, { cache: "no-store" });
-        if (!response.ok) return;
-        const capabilities = await response.json();
-        const note = document.getElementById('youtube-capability-note');
-        if (capabilities.youtube_link_import_enabled === false) {
-            if (note) note.style.display = 'flex';
-        } else {
-            if (note) note.style.display = 'none';
-        }
-    } catch (err) {
-        console.warn('Capability check failed:', err);
-    }
-}
-
-window.addEventListener('DOMContentLoaded', loadBackendCapabilities);
 
 // Tab Switching
 function switchTab(tabName) {
@@ -403,14 +401,14 @@ async function handleYoutubeSubmit(event) {
 async function handleFileUploadSubmit() {
     if (!selectedFile) return;
     dismissError();
-    
+
     // Check file size (100MB limit for Modal HTTP ingress)
     const MAX_FILE_SIZE_MB = 100;
     if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
         showError(`File too large (${(selectedFile.size / (1024*1024)).toFixed(1)}MB). The cloud proxy limit is ${MAX_FILE_SIZE_MB}MB. Please use the YouTube Link option instead for large videos!`);
         return;
     }
-    
+
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
 
     showProgress("Uploading video file to Studio Engine...", 10);
@@ -431,7 +429,7 @@ async function handleFileUploadSubmit() {
         }
 
         const resultData = await response.json();
-        
+
         if (resultData.job_id) {
             // Backend returned a job ID (async processing)
             pollJobStatus(resultData.job_id);
@@ -443,7 +441,7 @@ async function handleFileUploadSubmit() {
 
     } catch (err) {
         if (err.message.includes("Failed to fetch")) {
-            showError("Network Error: Connection to cloud dropped. Your video may be too large or the server timed out. Try using a YouTube link!");
+            showError("Network error: connection to the cloud processor dropped. Try a smaller MP4 file and run it again.");
         } else {
             showError(err.message || "Video upload failed.");
         }
@@ -453,11 +451,11 @@ async function handleFileUploadSubmit() {
 // Clip Another Video Workflow
 function resetApp() {
     if (pollingInterval) clearInterval(pollingInterval);
-    
+
     const resultsSection = document.getElementById('results-section');
     resultsSection.style.opacity = '0';
     resultsSection.style.transition = 'opacity 0.3s ease';
-    
+
     setTimeout(() => {
         document.getElementById('url-input').value = '';
         selectedFile = null;
@@ -465,12 +463,12 @@ function resetApp() {
         document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
         document.getElementById('dropzone-browse-btn').style.display = "inline-block";
         document.getElementById('file-action-container').style.display = "none";
-        
+
         document.getElementById('progress-card').style.display = 'none';
         resultsSection.style.display = 'none';
         resultsSection.style.opacity = '1';
         document.getElementById('clips-grid').innerHTML = '';
-        
+
         goToWizardStep(1);
         dismissError();
     }, 300);
@@ -483,7 +481,7 @@ function pollJobStatus(jobId) {
     pollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`);
-            
+
             if (response.status === 404) {
                 clearInterval(pollingInterval);
                 showError("Processing interrupted: Job not found on server.");
@@ -519,22 +517,22 @@ let currentWorkspaceJob = null;
 function renderInteractiveWorkspace(resultData) {
     currentWorkspaceJob = resultData;
     document.getElementById('interactive-workspace').style.display = 'block';
-    
+
     const list = document.getElementById('editor-clips-list');
     list.innerHTML = '';
-    
+
     if (!resultData || !resultData.clips || resultData.clips.length === 0) {
         showError("No valid clips were generated for this video.");
         return;
     }
-    
+
     resultData.clips.forEach((clip, index) => {
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.style = 'flex-direction: column; background: #11141A; padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); gap: 16px; margin-bottom: 24px; display: flex;';
-        
+
         const fullTranscript = clip.captions.map(c => c.word).join(" ");
-        
+
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; font-size: 1.1rem; color: #FFF;">Clip ${index + 1}: ${escapeHtml(clip.title)}</h3>
@@ -561,44 +559,44 @@ function renderInteractiveWorkspace(resultData) {
 
 async function submitRenderJob() {
     if (!currentWorkspaceJob) return;
-    
+
     // Collect the edited values
     currentWorkspaceJob.clips.forEach((clip, index) => {
         const start = parseFloat(document.getElementById(`start-time-${index}`).value);
         const end = parseFloat(document.getElementById(`end-time-${index}`).value);
         const transcriptText = document.getElementById(`transcript-${index}`).value;
-        
+
         clip.startSec = start;
         clip.endSec = end;
-        
+
         const newWords = transcriptText.trim().split(/\\s+/);
         const durationMs = Math.max(1, (end - start) * 1000);
         const timePerWord = durationMs / Math.max(1, newWords.length);
-        
+
         const newCaptions = newWords.map((w, i) => ({
             word: w,
             startMs: Math.round(i * timePerWord),
             endMs: Math.round((i + 1) * timePerWord)
         }));
-        
+
         clip.captions = newCaptions;
     });
-    
+
     document.getElementById('interactive-workspace').style.display = 'none';
     showProgress("Initializing Render Engine...", 0);
-    
+
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips })
         });
-        
+
         if (!response.ok) {
             const errText = await response.text();
             throw new Error(`Render start failed: ${errText}`);
         }
-        
+
         const data = await response.json();
         if (data.job_id) {
             pollJobStatus(data.job_id);
@@ -632,7 +630,8 @@ function renderResults(resultData) {
         const duration = Math.round((clip.endSec - clip.startSec) || 30);
         const scoreVizard = (viralScore / 10).toFixed(1);
 
-        const autoCaption = `Wait until you hear this! 🤯 ${escapeHtml(clipTitle)}... This is absolutely crazy. \n\n#viral #fyp #podcast #clips`;
+        const clipReason = clip.viralReason || clip.hookType || 'High-engagement segment selected by the processing engine.';
+        const autoCaption = `${escapeHtml(clipTitle)}\n\n${escapeHtml(clipReason)}`;
 
         const brollTag = clip.brollQuery ? `
             <div class="auto-caption-box" style="background: rgba(40,120,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 12px;">
@@ -653,7 +652,7 @@ function renderResults(resultData) {
             </div>
             <div class="clip-info" style="padding:10px;">
                 <h3 class="clip-title" style="font-size:0.88rem; font-weight:700; line-height:1.3; color:#FFF; margin-bottom:8px;">#${index + 1} ${escapeHtml(clipTitle)}</h3>
-                
+
                 ${brollTag}
 
                 <div class="auto-caption-box" style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; margin-bottom: 12px; cursor: pointer;" onclick="navigator.clipboard.writeText('${autoCaption.replace(/\n/g, ' ')}'); alert('Caption copied!');">
@@ -700,7 +699,7 @@ function openVideoModal(clipIndex) {
     document.getElementById('modal-clip-desc').innerText = desc;
     window.currentClipUrl = url; // Store url for download logic
     window.currentClipTitle = title;
-    
+
     // Update Timeline Component
     document.getElementById('timeline-duration').innerText = `00:${duration < 10 ? '0'+duration : duration}`;
 
@@ -766,7 +765,7 @@ function closeVideoModalForce() {
 // Download Logic to bypass Cross-Origin limits
 async function downloadClip() {
     if (!window.currentClipUrl) return;
-    
+
     const btn = document.getElementById('modal-download-btn');
     const originalText = btn.innerHTML;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
@@ -775,7 +774,7 @@ async function downloadClip() {
     try {
         const response = await fetch(window.currentClipUrl);
         const blob = await response.blob();
-        
+
         // Create an object URL from the Blob
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -785,7 +784,7 @@ async function downloadClip() {
         a.download = `${safeTitle}.mp4`;
         document.body.appendChild(a);
         a.click();
-        
+
         // Cleanup
         a.remove();
         window.URL.revokeObjectURL(url);
@@ -804,7 +803,7 @@ let currentPublishUrl = '';
 function shareClip(title, url) {
     const fullUrl = url && url.startsWith('http') ? url : window.location.href;
     currentPublishUrl = fullUrl;
-    
+
     // Attempt native share on Mobile devices if supported
     if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
         navigator.share({

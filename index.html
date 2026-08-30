@@ -44,7 +44,7 @@
     <main class="hero-section" id="clipper">
         <div class="hero-bg-aurora"></div>
         <div class="hero-container">
-            
+
             <div class="hero-header">
                 <h1 class="hero-title">Turn Long Videos into <span class="gradient-text">Viral Shorts</span></h1>
                 <p class="hero-subtitle">One studio across web and Android: upload or paste a link, auto-find viral moments, burn in captions, reframe to 9:16, and download ready-to-post MP4 clips.</p>
@@ -71,25 +71,27 @@
                 <div class="clipper-card">
                     <!-- Source Input Tabs -->
                     <div class="tab-buttons">
-                        <button class="tab-btn active" id="tab-youtube-btn" onclick="switchTab('youtube')">
+                        <button class="tab-btn" id="tab-youtube-btn" onclick="switchTab('youtube')">
                             <i class="fa-brands fa-youtube text-red"></i> YouTube Link
                         </button>
-                        <button class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">
+                        <button class="tab-btn active" id="tab-file-btn" onclick="switchTab('file')">
                             <i class="fa-solid fa-cloud-arrow-up text-neon"></i> Upload Video File
                         </button>
                     </div>
 
                     <!-- YouTube Input -->
-                    <div class="tab-panel active" id="panel-youtube">
+                    <div class="tab-panel" id="panel-youtube">
                         <div class="input-group">
                             <i class="fa-solid fa-link input-icon"></i>
-                            <input type="text" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" oninput="onUrlInputChange(event)" onkeydown="if(event.key==='Enter'){goToWizardStep(2);event.preventDefault();}">
+                            <input type="text" id="yt-url-input" placeholder="Paste a YouTube link" oninput="onUrlInputChange(event)" onkeydown="if(event.key==='Enter'){goToWizardStep(2);event.preventDefault();}">
                             <button type="button" class="btn-primary" id="btn-goto-step2" onclick="goToWizardStep(2)">
                                 <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
                             </button>
-                        </div>                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
+                        </div>
+
+                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
                             <i class="fa-solid fa-circle-info"></i>
-                            <span>YouTube link import requires system authorization. Upload an MP4 video file for instant 1080p clip generation.</span>
+                            <span>YouTube link import needs fresh cloud cookies/proxy. Upload an MP4 video file for reliable clip generation.</span>
                             <button type="button" onclick="switchTab('file')">Use Upload</button>
                         </div>
 
@@ -97,7 +99,7 @@
                     </div>
 
                     <!-- File Drag & Drop Panel -->
-                    <div class="tab-panel" id="panel-file">
+                    <div class="tab-panel active" id="panel-file">
                         <div class="dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
                             <input type="file" id="file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;" onchange="handleFileSelect(event)">
                             <div class="dropzone-content">
@@ -120,15 +122,15 @@
             <div class="wizard-panel" id="wizard-step-2">
                 <div class="clipper-card">
                     <!-- Wayin/OpusClip Video Metadata Preview Card -->
-                    <div class="video-ingest-card" id="video-ingest-card" style="display: flex;">
+                    <div class="video-ingest-card" id="video-ingest-card" style="display: none;">
                         <div class="video-thumb-container">
-                            <img id="video-preview-thumb" src="https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg" alt="Video Thumbnail">
+                            <img id="video-preview-thumb" src="" alt="Video Thumbnail">
                             <div class="video-duration-badge" id="video-preview-duration"><i class="fa-brands fa-youtube text-red"></i> Verified</div>
                         </div>
                         <div class="video-preview-details">
-                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1 Complete: Media Ingested</span>
-                            <h3 id="video-preview-title" class="video-preview-title">Lex Fridman AI Podcast</h3>
-                            <p id="video-preview-author" class="video-preview-author">Channel • Verified Media Stream</p>
+                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1 Complete: Media Ready</span>
+                            <h3 id="video-preview-title" class="video-preview-title">Selected media</h3>
+                            <p id="video-preview-author" class="video-preview-author">Ready for clip generation</p>
                         </div>
                     </div>
 
@@ -229,7 +231,7 @@
                         <h2><i class="fa-solid fa-pen-nib text-neon"></i> AI Editing Workspace</h2>
                         <p style="color: #888; font-size: 0.9rem;">Review your viral clips, correct transcript typos, and adjust timestamps before rendering.</p>
                     </div>
-                    
+
                     <div class="editor-clips-list" id="editor-clips-list" style="display: flex; flex-direction: column; gap: 24px; margin-top: 20px;">
                         <!-- JS injected editors -->
                     </div>
@@ -266,7 +268,7 @@
     <div class="modal-overlay" id="video-modal" onclick="closeVideoModal(event)">
         <div class="modal-card" style="display: flex; max-width: 1000px; width: 95%; flex-direction: row; gap: 24px; align-items: stretch; background: #0B0E14; padding: 24px; border-radius: 20px; position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border: 1px solid rgba(255, 255, 255, 0.05);">
             <button class="modal-close" onclick="closeVideoModalForce()" style="position: absolute; top: -16px; right: -16px; background: #1E293B; color: #fff; width: 36px; height: 36px; border-radius: 50%; border: 2px solid #0B0E14; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-xmark"></i></button>
-            
+
             <!-- Left Side: Video Player -->
             <div class="video-section" style="flex: 1; display: flex; flex-direction: column;">
                 <div class="video-container" style="flex: 1; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-radius: 12px; overflow: hidden;">
@@ -294,7 +296,7 @@
                     <button type="button" class="editor-tab active" style="flex: 1; padding: 14px; background: transparent; color: var(--primary-neon); border: none; border-bottom: 2px solid var(--primary-neon); font-weight: 600; cursor: pointer; font-size: 0.95rem;">Transcript</button>
                     <button type="button" class="editor-tab" style="flex: 1; padding: 14px; background: transparent; color: #64748B; border: none; border-bottom: 2px solid transparent; font-weight: 600; cursor: pointer; font-size: 0.95rem; transition: color 0.2s;">Style & Brand</button>
                 </div>
-                
+
                 <!-- Transcript Content -->
                 <div class="transcript-container" id="transcript-container" style="flex: 1; padding: 20px; overflow-y: auto; font-family: 'Inter', sans-serif; font-size: 1.15rem; line-height: 1.8; color: #E2E8F0; letter-spacing: 0.2px;">
                     <!-- Words dynamically injected here -->
@@ -338,7 +340,7 @@
     <div class="modal-overlay" id="auth-modal" onclick="closeAuthModal(event)" style="display: none; z-index: 2000;">
         <div class="modal-card" style="max-width: 420px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
             <button class="modal-close" onclick="closeAuthModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
-            
+
             <div style="text-align: center; margin-bottom: 24px;">
                 <h2 style="color: #FFF; font-size: 1.5rem; margin-bottom: 8px;">Create an account</h2>
                 <p style="color: #888; font-size: 0.9rem;">Save your clips and access them forever.</p>
@@ -380,7 +382,7 @@
     <div class="modal-overlay" id="publish-modal" onclick="closePublishModal(event)" style="display: none; z-index: 2000;">
         <div class="modal-card" style="max-width: 480px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
             <button class="modal-close" onclick="closePublishModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
-            
+
             <div style="text-align: center; margin-bottom: 24px;">
                 <h2 style="color: #FFF; font-size: 1.4rem; margin-bottom: 8px;">Publish to Socials</h2>
                 <p style="color: #888; font-size: 0.9rem;">Connect your accounts to post directly from ClipzStudio.</p>
@@ -411,7 +413,7 @@
                     <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
                 </button>
             </div>
-            
+
             <div style="background: rgba(120,40,230,0.1); border-radius: 8px; padding: 12px; border: 1px solid rgba(120,40,230,0.3); margin-bottom: 24px;">
                 <p style="margin: 0; font-size: 0.8rem; color: #B388FF; line-height: 1.4; text-align: center;">
                     <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i> Direct Publishing requires API authentication. Right now, this button allows you to download the video or copy the link to post natively.

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <link rel="icon" type="image/jpeg" href="favicon.jpg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LClipz — World-Class AI Video Clipper & Virality Engine</title>
+    <title>Clipz Studio — World-Class AI Video Clipper & Virality Engine</title>
     <meta name="description" content="Commercial-grade AI video clipper that turns YouTube videos and MP4 uploads into viral 9:16 vertical TikTok, Reels, and Shorts clips with OpusClip-style animated captions and face tracking.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,23 +15,27 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="top-banner">
-        <div class="banner-content">
-            <span class="badge-new">ANDROID UPDATE</span>
-            <span>Install the latest LClipz app before Play Store launch.</span>
-            <a href="/lclipz-android-latest.apk" download rel="noopener noreferrer" class="btn-download-apk"><i class="fa-solid fa-download"></i> Get v1.1 APK</a>
+    <!-- Top Countdown Banner -->
+    <div class="top-countdown-banner" id="top-countdown-banner" style="background: rgba(255, 60, 60, 0.1); border-bottom: 1px solid rgba(255, 60, 60, 0.2); padding: 12px 20px; display: flex; justify-content: center; align-items: center; gap: 16px; font-family: 'Inter', sans-serif;">
+        <div class="countdown-timer" id="countdown-timer" style="color: #FF4A4A; font-weight: 700; font-size: 1.1rem; letter-spacing: 1px; display: flex; align-items: center; gap: 4px;">
+            <span id="cd-h">23</span><span style="font-size: 0.8rem; font-weight: 500;">h</span> : <span id="cd-m">57</span><span style="font-size: 0.8rem; font-weight: 500;">m</span> : <span id="cd-s">00</span><span style="font-size: 0.8rem; font-weight: 500;">s</span>
         </div>
+        <div class="countdown-text" style="color: #E2E8F0; font-size: 0.95rem;">
+            Project will be archived in 24 hours. Sign up now to save your project.
+        </div>
+        <button class="btn-primary" onclick="openAuthModal()" style="padding: 6px 16px; font-size: 0.85rem; border-radius: 6px; background: #FF4A4A; color: white; border: none; box-shadow: 0 4px 10px rgba(255, 74, 74, 0.3);">Sign up</button>
     </div>
+
     <!-- Main Navigation Bar -->
     <header class="navbar">
         <div class="nav-container">
             <div class="logo">
                 <div class="logo-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
-                <span class="logo-text">L<span class="highlight">Clipz</span></span>
+                <span class="logo-text">Clipz<span class="highlight">Studio</span></span>
             </div>
             <nav class="nav-links">
-                <a href="#clipper" class="nav-item active"><i class="fa-solid fa-scissors"></i> Clipper</a>
-                <a href="/lclipz-android-latest.apk" download rel="noopener noreferrer" class="btn-nav-download"><i class="fa-solid fa-mobile-screen-button"></i> Download Android v1.1</a>
+
+                <a href="/lclipz-android-latest.apk" download rel="noopener noreferrer" class="nav-item" style="color: var(--primary-neon); border: 1px solid var(--primary-neon); padding: 6px 12px; border-radius: 6px; text-decoration: none;"><i class="fa-brands fa-android"></i> Get Android App</a>
             </nav>
         </div>
     </header>
@@ -40,7 +44,7 @@
     <main class="hero-section" id="clipper">
         <div class="hero-bg-aurora"></div>
         <div class="hero-container">
-            
+
             <div class="hero-header">
                 <h1 class="hero-title">Turn Long Videos into <span class="gradient-text">Viral Shorts</span></h1>
                 <p class="hero-subtitle">One studio across web and Android: upload or paste a link, auto-find viral moments, burn in captions, reframe to 9:16, and download ready-to-post MP4 clips.</p>
@@ -67,44 +71,41 @@
                 <div class="clipper-card">
                     <!-- Source Input Tabs -->
                     <div class="tab-buttons">
-                        <button class="tab-btn active" id="tab-youtube-btn" onclick="switchTab('youtube')">
+                        <button class="tab-btn" id="tab-youtube-btn" onclick="switchTab('youtube')">
                             <i class="fa-brands fa-youtube text-red"></i> YouTube Link
                         </button>
-                        <button class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">
+                        <button class="tab-btn active" id="tab-file-btn" onclick="switchTab('file')">
                             <i class="fa-solid fa-cloud-arrow-up text-neon"></i> Upload Video File
                         </button>
                     </div>
 
                     <!-- YouTube Input -->
-                    <div class="tab-panel active" id="panel-youtube">
+                    <div class="tab-panel" id="panel-youtube">
                         <div class="input-group">
                             <i class="fa-solid fa-link input-icon"></i>
-                            <input type="text" id="yt-url-input" placeholder="Paste YouTube link (e.g. https://www.youtube.com/watch?v=AaMdXZMvT3w)" oninput="onUrlInputChange(event)" onkeydown="if(event.key==='Enter'){goToWizardStep(2);event.preventDefault();}">
+                            <input type="text" id="yt-url-input" placeholder="Paste a YouTube link" oninput="onUrlInputChange(event)" onkeydown="if(event.key==='Enter'){goToWizardStep(2);event.preventDefault();}">
                             <button type="button" class="btn-primary" id="btn-goto-step2" onclick="goToWizardStep(2)">
                                 <span>Next: Customize Style</span> <i class="fa-solid fa-arrow-right"></i>
                             </button>
-                        </div>                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
+                        </div>
+
+                        <div class="youtube-capability-note" id="youtube-capability-note" style="display: none;">
                             <i class="fa-solid fa-circle-info"></i>
-                            <span>YouTube link import requires system authorization. Upload an MP4 video file for instant 1080p clip generation.</span>
+                            <span>YouTube link import needs fresh cloud cookies/proxy. Upload an MP4 video file for reliable clip generation.</span>
                             <button type="button" onclick="switchTab('file')">Use Upload</button>
                         </div>
 
-                        <div class="sample-links" id="youtube-sample-links">
-                            <span>Try example link:</span>
-                            <button type="button" class="sample-chip" id="btn-sample-lex" onclick="fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w')">
-                                Lex Fridman AI Podcast
-                            </button>
-                        </div>
+
                     </div>
 
                     <!-- File Drag & Drop Panel -->
-                    <div class="tab-panel" id="panel-file">
+                    <div class="tab-panel active" id="panel-file">
                         <div class="dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)">
                             <input type="file" id="file-input" accept="video/mp4,video/mkv,video/webm" style="display: none;" onchange="handleFileSelect(event)">
                             <div class="dropzone-content">
                                 <div class="dropzone-icon"><i class="fa-solid fa-film"></i></div>
                                 <h3 id="dropzone-title">Drag & Drop video file here</h3>
-                                <p id="dropzone-subtitle">Supports MP4, MKV, or WEBM up to 500MB</p>
+                                <p id="dropzone-subtitle">Supports MP4, MKV, or WEBM up to 100MB</p>
                                 <button type="button" class="btn-secondary" id="dropzone-browse-btn">Browse File</button>
                             </div>
                         </div>
@@ -121,63 +122,28 @@
             <div class="wizard-panel" id="wizard-step-2">
                 <div class="clipper-card">
                     <!-- Wayin/OpusClip Video Metadata Preview Card -->
-                    <div class="video-ingest-card" id="video-ingest-card" style="display: flex;">
+                    <div class="video-ingest-card" id="video-ingest-card" style="display: none;">
                         <div class="video-thumb-container">
-                            <img id="video-preview-thumb" src="https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg" alt="Video Thumbnail">
+                            <img id="video-preview-thumb" src="" alt="Video Thumbnail">
                             <div class="video-duration-badge" id="video-preview-duration"><i class="fa-brands fa-youtube text-red"></i> Verified</div>
                         </div>
                         <div class="video-preview-details">
-                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1 Complete: Media Ingested</span>
-                            <h3 id="video-preview-title" class="video-preview-title">Lex Fridman AI Podcast</h3>
-                            <p id="video-preview-author" class="video-preview-author">Channel • Verified Media Stream</p>
+                            <span class="video-status-tag"><i class="fa-solid fa-circle-check text-neon"></i> Step 1 Complete: Media Ready</span>
+                            <h3 id="video-preview-title" class="video-preview-title">Selected media</h3>
+                            <p id="video-preview-author" class="video-preview-author">Ready for clip generation</p>
                         </div>
                     </div>
 
-                    <!-- Commercial Style Customization Controls -->
-                    <div class="preset-controls-grid">
-                        <!-- Subtitles ON / OFF Toggle -->
-                        <div class="control-box">
-                            <label><i class="fa-solid fa-toggle-on text-neon"></i> Subtitles Overlay</label>
-                            <div class="preset-chips" id="captions-toggle-chips">
-                                <button type="button" class="chip-option active" id="btn-captions-on" onclick="toggleCaptions(true)">
-                                    ✨ Subtitles ON
-                                </button>
-                                <button type="button" class="chip-option" id="btn-captions-off" onclick="toggleCaptions(false)">
-                                    🚫 No Subtitles (Clean)
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Captions Style Selector -->
-                        <div class="control-box">
-                            <label><i class="fa-solid fa-closed-captioning text-neon"></i> Subtitle Style Preset</label>
-                            <div class="preset-chips" id="caption-style-chips">
-                                <button type="button" class="chip-option active" data-style="opus" onclick="selectCaptionStyle(this, 'opus')">
-                                    ⚡ Opus Active Glow
-                                </button>
-                                <button type="button" class="chip-option" data-style="hormozi" onclick="selectCaptionStyle(this, 'hormozi')">
-                                    🎯 Hormozi Impact
-                                </button>
-                                <button type="button" class="chip-option" data-style="mrbeast" onclick="selectCaptionStyle(this, 'mrbeast')">
-                                    🔥 MrBeast Cyber
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Target Aspect Ratio -->
-                        <div class="control-box">
-                            <label><i class="fa-solid fa-crop text-neon"></i> Output Aspect Ratio</label>
-                            <div class="preset-chips" id="aspect-ratio-chips">
-                                <button type="button" class="chip-option active" data-ratio="9:16" onclick="selectAspectRatio(this, '9:16')">
-                                    📱 9:16 TikTok / Shorts
-                                </button>
-                                <button type="button" class="chip-option" data-ratio="1:1" onclick="selectAspectRatio(this, '1:1')">
-                                    🟩 1:1 Square
-                                </button>
-                                <button type="button" class="chip-option" data-ratio="16:9" onclick="selectAspectRatio(this, '16:9')">
-                                    📺 16:9 Landscape
-                                </button>
-                            </div>
+                    <!-- Automated AI Configuration & Minimal Controls -->
+                    <div class="preset-controls-grid" style="display: flex; align-items: center; gap: 20px; margin-top: 10px; padding-top: 10px; border: none; grid-template-columns: 1fr;">
+                        <div class="control-box" style="flex-direction: row; align-items: center; gap: 12px; background: #0B0E14; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); width: fit-content;">
+                            <label style="margin: 0; font-size: 0.85rem;"><i class="fa-solid fa-closed-captioning text-neon"></i> Subtitles Overlay</label>
+                            <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0;">
+                                <input type="checkbox" id="captions-toggle-checkbox" checked onchange="toggleCaptions(this.checked); this.nextElementSibling.style.backgroundColor = this.checked ? 'var(--primary-neon)' : '#1E293B'; this.nextElementSibling.firstElementChild.style.transform = this.checked ? 'translateX(20px)' : 'translateX(0)';" style="opacity: 0; width: 0; height: 0; position: absolute;">
+                                <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--primary-neon); transition: .2s; border-radius: 24px;">
+                                    <span class="slider-knob" style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; transform: translateX(20px); box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></span>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -228,29 +194,24 @@
                     <div class="vizard-levels-list">
                         <div class="vizard-level-item active" id="vizard-lvl-1">
                             <i class="fa-solid fa-circle-check level-icon text-neon"></i>
-                            <span>1. Uploading & Ingestion...</span>
+                            <span>1. Uploading video...</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-2">
                             <i class="fa-solid fa-circle-notch fa-spin level-icon"></i>
-                            <span>2. Creating project & Speech Transcription</span>
+                            <span>2. Transcribing audio...</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-3">
                             <i class="fa-solid fa-circle level-icon text-muted"></i>
-                            <span>3. Find best viral parts (Groq AI)</span>
+                            <span>3. Analyzing for viral moments...</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-4">
                             <i class="fa-solid fa-circle level-icon text-muted"></i>
-                            <span>4. Auto reframe (OpenCV 9:16)</span>
+                            <span>4. Reframing video to vertical...</span>
                         </div>
                         <div class="vizard-level-item" id="vizard-lvl-5">
                             <i class="fa-solid fa-circle level-icon text-muted"></i>
-                            <span>5. Export (1080p HD & Subtitles)</span>
+                            <span>5. Generating final clips...</span>
                         </div>
-                    </div>
-
-                    <!-- AI Terminal Log (New) -->
-                    <div class="ai-terminal-log" id="ai-terminal-log">
-                        <div class="terminal-line"><span class="term-prefix">system@lclipz:~$</span> Initializing Studio Engine...</div>
                     </div>
                 </div>
 
@@ -264,11 +225,34 @@
                     <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
+                <!-- Interactive Workspace Section -->
+                <section class="interactive-workspace" id="interactive-workspace" style="display: none;">
+                    <div class="results-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                        <h2><i class="fa-solid fa-pen-nib text-neon"></i> AI Editing Workspace</h2>
+                        <p style="color: #888; font-size: 0.9rem;">Review your viral clips, correct transcript typos, and adjust timestamps before rendering.</p>
+                    </div>
+
+                    <div class="editor-clips-list" id="editor-clips-list" style="display: flex; flex-direction: column; gap: 24px; margin-top: 20px;">
+                        <!-- JS injected editors -->
+                    </div>
+
+                    <div style="margin-top: 30px; display: flex; justify-content: flex-end;">
+                        <button class="btn-primary" onclick="submitRenderJob()" style="padding: 14px 28px; font-size: 1.05rem; box-shadow: 0 4px 20px rgba(0, 255, 170, 0.3);">
+                            <i class="fa-solid fa-film"></i> Export Final MP4s
+                        </button>
+                    </div>
+                </section>
+
                 <!-- Results Gallery Section -->
                 <section class="results-section" id="results-section" style="display: none;">
                     <div class="results-header">
-                        <h2><i class="fa-solid fa-fire text-neon"></i> Generated Viral Shorts</h2>
-                        <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <h2><i class="fa-solid fa-fire text-neon"></i> Generated Viral Shorts</h2>
+                            <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
+                        </div>
+                        <button class="btn-primary" onclick="resetApp()" style="margin-left: auto; padding: 10px 20px; font-weight: 600; font-size: 0.95rem; border-radius: 8px; box-shadow: 0 4px 15px rgba(0, 255, 170, 0.2); transition: all 0.3s ease;">
+                            <i class="fa-solid fa-video"></i> Clip Another Video
+                        </button>
                     </div>
                     <div class="clips-grid" id="clips-grid">
                         <!-- Clip cards dynamically rendered here -->
@@ -276,82 +260,61 @@
                 </section>
             </div>
 
-            <section class="app-update-panel" id="android-update">
-                <div class="app-update-copy">
-                    <span class="video-status-tag"><i class="fa-solid fa-mobile-screen-button text-neon"></i> Android early access</span>
-                    <h2>Use the same LClipz studio on your phone.</h2>
-                    <p>The website and Android app share the same high-speed studio workflow, animated captions, and AI engine. Download the latest APK here until Play Store launch.</p>
-                </div>
-                <div class="app-update-actions">
-                    <a href="/lclipz-android-latest.apk" download rel="noopener noreferrer" class="btn-primary full-width"><i class="fa-solid fa-download"></i> Download Android v1.1 APK</a>
-                    <a href="#clipper" class="btn-secondary app-update-secondary"><i class="fa-solid fa-scissors"></i> Use Web Studio</a>
-                </div>
-            </section>
-            <!-- Live Downloading Progress Monitor Card -->
-            <div class="progress-card" id="progress-card" style="display: none;">
-                <div class="progress-header">
-                    <div class="spinner"><i class="fa-solid fa-circle-notch fa-spin"></i></div>
-                    <div class="progress-info">
-                        <h3 id="progress-title">Connecting to AI Engine...</h3>
-                        <p id="progress-step">Initializing GPU worker container...</p>
-                    </div>
-                    <span class="progress-pct" id="progress-pct">5%</span>
-                </div>
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progress-bar-fill" style="width: 5%;"></div>
-                </div>
-            </div>
 
-            <!-- Error Monitor Card -->
-            <div class="error-card" id="error-card" style="display: none;">
-                <i class="fa-solid fa-triangle-exclamation error-icon"></i>
-                <div class="error-info">
-                    <h3>Processing Notice</h3>
-                    <p id="error-message">Unable to process video.</p>
-                </div>
-                <button type="button" class="btn-dismiss" onclick="dismissError()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <!-- Results Gallery Section -->
-            <section class="results-section" id="results-section" style="display: none;">
-                <div class="results-header">
-                    <h2><i class="fa-solid fa-fire text-neon"></i> Generated Viral Shorts</h2>
-                    <span class="clips-count-badge" id="clips-total-badge">3 Clips Ready</span>
-                </div>
-                <div class="clips-grid" id="clips-grid">
-                    <!-- Clip cards dynamically rendered here -->
-                </div>
-            </section>
         </div>
     </main>
 
     <!-- Video Modal Preview -->
     <div class="modal-overlay" id="video-modal" onclick="closeVideoModal(event)">
-        <div class="modal-card">
-            <button class="modal-close" onclick="closeVideoModalForce()"><i class="fa-solid fa-xmark"></i></button>
-            <div class="video-container">
-                <video id="modal-video-player" controls autoplay loop></video>
+        <div class="modal-card" style="display: flex; max-width: 1000px; width: 95%; flex-direction: row; gap: 24px; align-items: stretch; background: #0B0E14; padding: 24px; border-radius: 20px; position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border: 1px solid rgba(255, 255, 255, 0.05);">
+            <button class="modal-close" onclick="closeVideoModalForce()" style="position: absolute; top: -16px; right: -16px; background: #1E293B; color: #fff; width: 36px; height: 36px; border-radius: 50%; border: 2px solid #0B0E14; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-xmark"></i></button>
+
+            <!-- Left Side: Video Player -->
+            <div class="video-section" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="video-container" style="flex: 1; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-radius: 12px; overflow: hidden;">
+                    <video id="modal-video-player" controls autoplay loop style="max-height: 500px; width: auto; margin: 0 auto; background: #000; flex: 1;"></video>
+                    <!-- V3 Advanced Timeline Editor -->
+                    <div class="timeline-editor-container" style="background: #11141A; padding: 16px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#888; margin-bottom:8px;">
+                            <span>00:00</span>
+                            <span id="timeline-duration">00:30</span>
+                        </div>
+                        <div class="timeline-track" style="height: 28px; background: #1E293B; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);">
+                            <div class="timeline-waveform" style="position:absolute; top:0; left:0; right:0; bottom:0; opacity:0.4; background-image: repeating-linear-gradient(90deg, transparent, transparent 2px, var(--primary-neon) 2px, var(--primary-neon) 5px);"></div>
+                            <div class="timeline-handle-left" style="position:absolute; left:10%; top:0; bottom:0; width:4px; background:#FFF; cursor:ew-resize;"></div>
+                            <div class="timeline-handle-right" style="position:absolute; right:10%; top:0; bottom:0; width:4px; background:#FFF; cursor:ew-resize;"></div>
+                            <div class="timeline-selection" style="position:absolute; left:10%; right:10%; top:0; bottom:0; background:rgba(0, 255, 170, 0.2);"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="modal-details">
-                <h3 id="modal-clip-title">Clip Preview</h3>
-                <p id="modal-clip-desc">High retention video segment</p>
-                <div class="vizard-modal-actions">
-                    <a id="modal-download-link" href="#" download rel="noopener noreferrer" class="vizard-action-btn">
-                        <i class="fa-solid fa-download"></i>
-                        <span>Save</span>
-                    </a>
-                    <button type="button" class="vizard-action-btn" onclick="alert('AI post: Social media caption generated!')">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>
-                        <span>AI post</span>
-                    </button>
-                    <button type="button" class="vizard-action-btn" onclick="if(navigator.share){navigator.share({title:document.getElementById('modal-clip-title').innerText,url:document.getElementById('modal-download-link').href})}else{alert('Share link copied!')}">
-                        <i class="fa-solid fa-share-nodes"></i>
-                        <span>Share to...</span>
-                    </button>
-                    <button type="button" class="vizard-action-btn" onclick="alert('Full transcript with word timestamps exported.')">
-                        <i class="fa-solid fa-file-lines"></i>
-                        <span>Transcript</span>
-                    </button>
+
+            <!-- Right Side: Interactive Transcript Editor -->
+            <div class="editor-section" style="flex: 1; display: flex; flex-direction: column; background: #141820; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                <!-- Editor Tabs -->
+                <div class="editor-tabs" style="display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: #0F1219;">
+                    <button type="button" class="editor-tab active" style="flex: 1; padding: 14px; background: transparent; color: var(--primary-neon); border: none; border-bottom: 2px solid var(--primary-neon); font-weight: 600; cursor: pointer; font-size: 0.95rem;">Transcript</button>
+                    <button type="button" class="editor-tab" style="flex: 1; padding: 14px; background: transparent; color: #64748B; border: none; border-bottom: 2px solid transparent; font-weight: 600; cursor: pointer; font-size: 0.95rem; transition: color 0.2s;">Style & Brand</button>
+                </div>
+
+                <!-- Transcript Content -->
+                <div class="transcript-container" id="transcript-container" style="flex: 1; padding: 20px; overflow-y: auto; font-family: 'Inter', sans-serif; font-size: 1.15rem; line-height: 1.8; color: #E2E8F0; letter-spacing: 0.2px;">
+                    <!-- Words dynamically injected here -->
+                    <p style="text-align: center; color: #64748B; margin-top: 50px;">Loading AI Transcript...</p>
+                </div>
+
+                <!-- Export/Action Details -->
+                <div class="modal-details" style="padding: 20px; background: #0F1219; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                    <h3 id="modal-clip-title" style="margin-bottom: 6px; font-size: 1.05rem; color: #F8FAFC;">Clip Preview</h3>
+                    <p id="modal-clip-desc" style="font-size: 0.8rem; color: #888; margin-bottom: 12px;">High retention video segment</p>
+                    <div class="vizard-modal-actions" style="display: flex; gap: 8px;">
+                        <button type="button" id="modal-download-btn" onclick="downloadClip()" class="btn-primary" style="flex: 1; text-align: center; padding: 8px; font-size: 0.9rem;">
+                            <i class="fa-solid fa-download"></i> Export
+                        </button>
+                        <button type="button" class="btn-secondary" style="flex: 1; padding: 8px; font-size: 0.9rem;" onclick="alert('AI post: Social media caption generated!')">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> AI Post
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -373,10 +336,100 @@
         </button>
     </nav>
 
+    <!-- Auth Modal -->
+    <div class="modal-overlay" id="auth-modal" onclick="closeAuthModal(event)" style="display: none; z-index: 2000;">
+        <div class="modal-card" style="max-width: 420px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+            <button class="modal-close" onclick="closeAuthModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
+
+            <div style="text-align: center; margin-bottom: 24px;">
+                <h2 style="color: #FFF; font-size: 1.5rem; margin-bottom: 8px;">Create an account</h2>
+                <p style="color: #888; font-size: 0.9rem;">Save your clips and access them forever.</p>
+            </div>
+
+            <button class="btn-secondary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 24px; background: #1E293B; border: 1px solid rgba(255,255,255,0.1); color: #FFF; transition: all 0.2s; cursor: pointer;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" style="width: 18px; height: 18px;">
+                Continue with Google
+            </button>
+
+            <div style="display: flex; align-items: center; margin-bottom: 24px;">
+                <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.1);"></div>
+                <div style="padding: 0 12px; color: #64748B; font-size: 0.8rem; font-weight: 600;">OR</div>
+                <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.1);"></div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+                <div>
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Work Email</label>
+                    <input type="email" placeholder="name@company.com" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Password</label>
+                    <input type="password" placeholder="••••••••" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px rgba(0, 255, 170, 0.2);">
+                Sign Up
+            </button>
+
+            <p style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 24px;">
+                Already have an account? <a href="#" style="color: var(--primary-neon); text-decoration: none;">Log in</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Publish Social Modal -->
+    <div class="modal-overlay" id="publish-modal" onclick="closePublishModal(event)" style="display: none; z-index: 2000;">
+        <div class="modal-card" style="max-width: 480px; width: 100%; background: #0F1219; padding: 32px; border-radius: 16px; position: relative; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+            <button class="modal-close" onclick="closePublishModalForce()" style="position: absolute; top: 16px; right: 16px; background: transparent; color: #888; border: none; font-size: 1.2rem; cursor: pointer; transition: color 0.2s;"><i class="fa-solid fa-xmark"></i></button>
+
+            <div style="text-align: center; margin-bottom: 24px;">
+                <h2 style="color: #FFF; font-size: 1.4rem; margin-bottom: 8px;">Publish to Socials</h2>
+                <p style="color: #888; font-size: 0.9rem;">Connect your accounts to post directly from ClipzStudio.</p>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px;">
+                <button class="btn-secondary" onclick="mockSocialPublish('TikTok')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-tiktok" style="font-size: 1.4rem; color: #FFF;"></i>
+                        <span style="font-weight: 600;">TikTok</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+
+                <button class="btn-secondary" onclick="mockSocialPublish('YouTube Shorts')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-youtube" style="font-size: 1.4rem; color: #FF0000;"></i>
+                        <span style="font-weight: 600;">YouTube Shorts</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+
+                <button class="btn-secondary" onclick="mockSocialPublish('Instagram Reels')" style="padding: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; background: #11141A; border: 1px solid rgba(255,255,255,0.1); color: #FFF; cursor: pointer; transition: background 0.2s;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fa-brands fa-instagram" style="font-size: 1.4rem; color: #E1306C;"></i>
+                        <span style="font-weight: 600;">Instagram Reels</span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: #00FFAA; font-weight: 600;">Connect</span>
+                </button>
+            </div>
+
+            <div style="background: rgba(120,40,230,0.1); border-radius: 8px; padding: 12px; border: 1px solid rgba(120,40,230,0.3); margin-bottom: 24px;">
+                <p style="margin: 0; font-size: 0.8rem; color: #B388FF; line-height: 1.4; text-align: center;">
+                    <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i> Direct Publishing requires API authentication. Right now, this button allows you to download the video or copy the link to post natively.
+                </p>
+            </div>
+
+            <button class="btn-primary" onclick="copyPublishLinkFallback()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600;">
+                <i class="fa-solid fa-link" style="margin-right: 8px;"></i> Copy Link & Post Manually
+            </button>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-container">
-            <p>© 2026 LClipz. All rights reserved.</p>
+            <p>© 2026 Clipz Studio. All rights reserved.</p>
         </div>
     </footer>
 

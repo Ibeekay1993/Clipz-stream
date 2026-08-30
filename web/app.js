@@ -5,7 +5,9 @@ let selectedFile = null;
 let currentWizardStep = 1;
 
 document.addEventListener('DOMContentLoaded', () => {
-    checkCapabilities();
+    loadBackendCapabilities();
+    switchTab('file');
+    startCountdown();
 
     const btnNext = document.getElementById('btn-goto-step2');
     if (btnNext) {
@@ -15,56 +17,111 @@ document.addEventListener('DOMContentLoaded', () => {
             goToWizardStep(2);
         });
     }
-
-    const sampleBtn = document.getElementById('btn-sample-lex');
-    if (sampleBtn) {
-        sampleBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            fillSample('https://www.youtube.com/watch?v=AaMdXZMvT3w');
-        });
-    }
 });
 
-async function checkCapabilities() {
-    try {
-        const resp = await fetch(`${MODAL_BASE_URL}/api/capabilities`);
-        if (resp.ok) {
-            const data = await resp.json();
-            if (!data.youtube_link_import_enabled) {
-                const note = document.getElementById('youtube-capability-note');
-                if (note) note.style.display = 'flex';
-            }
-        }
-    } catch (e) {
-        console.warn("Capabilities check skipped:", e);
+// Top Banner Countdown Logic
+function startCountdown() {
+    let timeLeft = 23 * 3600 + 57 * 60;
+    const hEl = document.getElementById('cd-h');
+    const mEl = document.getElementById('cd-m');
+    const sEl = document.getElementById('cd-s');
+
+    if (!hEl || !mEl || !sEl) return;
+
+    setInterval(() => {
+        if (timeLeft <= 0) return;
+        timeLeft--;
+        const h = Math.floor(timeLeft / 3600);
+        const m = Math.floor((timeLeft % 3600) / 60);
+        const s = timeLeft % 60;
+
+        hEl.innerText = h < 10 ? '0' + h : h;
+        mEl.innerText = m < 10 ? '0' + m : m;
+        sEl.innerText = s < 10 ? '0' + s : s;
+    }, 1000);
+}
+
+// Auth Modal Logic
+function openAuthModal() {
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAuthModal(e) {
+    if (e.target.id === 'auth-modal') {
+        closeAuthModalForce();
     }
+}
+
+function closeAuthModalForce() {
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function mockAuthLogin() {
+    alert("Thanks for signing up. Your clips will now be saved to your workspace.");
+    closeAuthModalForce();
+    const banner = document.getElementById('top-countdown-banner');
+    if (banner) banner.style.display = 'none';
+}
+
+async function loadBackendCapabilities() {
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/capabilities`, { cache: "no-store" });
+        if (!response.ok) return;
+        const capabilities = await response.json();
+        const note = document.getElementById('youtube-capability-note');
+        const ytButton = document.getElementById('tab-youtube-btn');
+
+        if (capabilities.youtube_link_import_enabled === false) {
+            if (note) note.style.display = 'flex';
+            if (ytButton) ytButton.classList.add('limited');
+            switchTab('file');
+        } else {
+            if (note) note.style.display = 'none';
+            if (ytButton) ytButton.classList.remove('limited');
+        }
+    } catch (err) {
+        console.warn('Capability check failed:', err);
+    }
+}
+
+function getActiveImportTab() {
+    const activeTab = document.querySelector('.tab-btn.active');
+    return activeTab ? activeTab.id : 'tab-file-btn';
 }
 
 function goToWizardStep(stepNum) {
     if (stepNum === 2) {
-        const urlInput = document.getElementById('yt-url-input');
-        let url = urlInput ? urlInput.value.trim() : '';
+        const activeTab = getActiveImportTab();
+        const card = document.getElementById('video-ingest-card');
 
-        if (!url && !selectedFile) {
-            url = "https://www.youtube.com/watch?v=AaMdXZMvT3w";
-            if (urlInput) urlInput.value = url;
-        }
-
-        if (url) {
-            const ytId = extractYoutubeId(url) || "AaMdXZMvT3w";
+        if (activeTab === 'tab-file-btn') {
+            if (!selectedFile) {
+                showError("Please upload a video file first.");
+                return;
+            }
+            document.getElementById('video-preview-title').innerText = selectedFile.name;
+            document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024 * 1024)).toFixed(1)}MB`;
+            document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
+            if (card) card.style.display = 'flex';
+        } else {
+            const urlInput = document.getElementById('yt-url-input');
+            const url = urlInput ? urlInput.value.trim() : '';
+            if (!url) {
+                showError("Please paste a YouTube URL first, or switch to Upload Video File.");
+                return;
+            }
+            const ytId = extractYoutubeId(url);
+            if (!ytId) {
+                showError("Invalid YouTube URL. Please check the link or upload the video file directly.");
+                return;
+            }
             document.getElementById('video-preview-thumb').src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
             document.getElementById('video-preview-title').innerText = "YouTube Video Stream";
-            document.getElementById('video-preview-author').innerText = "Verified Media Channel";
-            const card = document.getElementById('video-ingest-card');
+            document.getElementById('video-preview-author').innerText = "Waiting for cloud import";
             if (card) card.style.display = 'flex';
             try { onUrlInputChange(url); } catch (e) {}
-        } else if (selectedFile) {
-            document.getElementById('video-preview-title').innerText = selectedFile.name;
-            document.getElementById('video-preview-author').innerText = `File Upload • ${(selectedFile.size / (1024*1024)).toFixed(1)}MB`;
-            document.getElementById('video-preview-thumb').src = "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=400&q=80";
-            const card = document.getElementById('video-ingest-card');
-            if (card) card.style.display = 'flex';
         }
     }
 
@@ -88,44 +145,43 @@ function goToWizardStep(stepNum) {
         }
     });
 
+    const header = document.querySelector('.hero-header');
+    if (header) header.style.display = stepNum > 1 ? 'none' : 'block';
+
     const clipper = document.getElementById('clipper');
     if (clipper) clipper.scrollIntoView({ behavior: 'smooth' });
 }
 
 function submitWizardJob() {
-    goToWizardStep(3);
+    const activeTab = getActiveImportTab();
+
+    if (activeTab === 'tab-file-btn') {
+        if (!selectedFile) {
+            showError("Please upload a video file first.");
+            goToWizardStep(1);
+            return;
+        }
+        goToWizardStep(3);
+        handleFileUploadSubmit();
+        return;
+    }
+
     const urlInput = document.getElementById('yt-url-input');
     const url = urlInput ? urlInput.value.trim() : '';
-
-    if (url) {
-        const fakeEvent = { preventDefault: () => {} };
-        handleYoutubeSubmit(fakeEvent);
-    } else if (selectedFile) {
-        handleFileUploadSubmit();
-    } else {
-        showError("Please provide a valid YouTube link or video file.");
+    if (!url) {
+        showError("Please paste a YouTube URL first, or use Upload Video File.");
+        goToWizardStep(1);
+        return;
     }
+    goToWizardStep(3);
+    handleYoutubeSubmit({ preventDefault: () => {} });
 }
 
 let pollingInterval = null;
-let currentCaptionStyle = "opus";
-let currentAspectRatio = "9:16";
-
-function selectCaptionStyle(btn, styleName) {
-    document.querySelectorAll('#caption-style-chips .chip-option').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentCaptionStyle = styleName;
-}
-
-function selectAspectRatio(btn, ratioName) {
-    document.querySelectorAll('#aspect-ratio-chips .chip-option').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentAspectRatio = ratioName;
-}
 
 function switchMobileTab(tabName) {
     document.querySelectorAll('.mobile-nav-item').forEach(btn => btn.classList.remove('active'));
-    
+
     if (tabName === 'import') {
         const item = document.getElementById('mobile-nav-import');
         if (item) item.classList.add('active');
@@ -143,23 +199,6 @@ function switchMobileTab(tabName) {
     }
 }
 
-async function loadBackendCapabilities() {
-    try {
-        const response = await fetch(`${MODAL_BASE_URL}/api/capabilities`, { cache: "no-store" });
-        if (!response.ok) return;
-        const capabilities = await response.json();
-        const note = document.getElementById('youtube-capability-note');
-        if (capabilities.youtube_link_import_enabled === false) {
-            if (note) note.style.display = 'flex';
-        } else {
-            if (note) note.style.display = 'none';
-        }
-    } catch (err) {
-        console.warn('Capability check failed:', err);
-    }
-}
-
-window.addEventListener('DOMContentLoaded', loadBackendCapabilities);
 
 // Tab Switching
 function switchTab(tabName) {
@@ -214,18 +253,7 @@ async function onUrlInputChange(event) {
     }
 }
 
-function fillSample(url) {
-    const input = document.getElementById('yt-url-input');
-    if (input) {
-        input.value = url;
-        document.getElementById('video-preview-thumb').src = "https://img.youtube.com/vi/AaMdXZMvT3w/hqdefault.jpg";
-        document.getElementById('video-preview-title').innerText = "Lex Fridman AI Podcast";
-        document.getElementById('video-preview-author').innerText = "Lex Fridman • Verified Media Stream";
-        const card = document.getElementById('video-ingest-card');
-        if (card) card.style.display = 'flex';
-        goToWizardStep(2);
-    }
-}
+
 
 // File Dropzone Handling
 function triggerFileInput() {
@@ -296,20 +324,6 @@ function showProgress(stepMsg, pct) {
     document.getElementById('progress-step').innerText = stepMsg;
     document.getElementById('progress-pct').innerText = `${pct}%`;
     document.getElementById('progress-bar-fill').style.width = `${pct}%`;
-
-    // Add to AI Terminal Log
-    const term = document.getElementById('ai-terminal-log');
-    if (term) {
-        // Prevent duplicate spam if the exact same message is repeated consecutively
-        const lastLine = term.lastElementChild;
-        if (!lastLine || !lastLine.innerText.includes(stepMsg)) {
-            const line = document.createElement('div');
-            line.className = 'terminal-line';
-            line.innerHTML = `<span class="term-prefix">system@lclipz:~$</span> ${stepMsg} [${pct}%]`;
-            term.appendChild(line);
-            term.scrollTop = term.scrollHeight; // auto-scroll
-        }
-    }
 
     // Dynamically update Vizard level indicators
     const lvl1 = document.getElementById('vizard-lvl-1');
@@ -387,6 +401,14 @@ async function handleYoutubeSubmit(event) {
 async function handleFileUploadSubmit() {
     if (!selectedFile) return;
     dismissError();
+
+    // Check file size (100MB limit for Modal HTTP ingress)
+    const MAX_FILE_SIZE_MB = 100;
+    if (selectedFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        showError(`File too large (${(selectedFile.size / (1024*1024)).toFixed(1)}MB). The cloud proxy limit is ${MAX_FILE_SIZE_MB}MB. Please use the YouTube Link option instead for large videos!`);
+        return;
+    }
+
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
 
     showProgress("Uploading video file to Studio Engine...", 10);
@@ -407,7 +429,7 @@ async function handleFileUploadSubmit() {
         }
 
         const resultData = await response.json();
-        
+
         if (resultData.job_id) {
             // Backend returned a job ID (async processing)
             pollJobStatus(resultData.job_id);
@@ -418,8 +440,38 @@ async function handleFileUploadSubmit() {
         }
 
     } catch (err) {
-        showError(err.message || "Video upload failed.");
+        if (err.message.includes("Failed to fetch")) {
+            showError("Network error: connection to the cloud processor dropped. Try a smaller MP4 file and run it again.");
+        } else {
+            showError(err.message || "Video upload failed.");
+        }
     }
+}
+
+// Clip Another Video Workflow
+function resetApp() {
+    if (pollingInterval) clearInterval(pollingInterval);
+
+    const resultsSection = document.getElementById('results-section');
+    resultsSection.style.opacity = '0';
+    resultsSection.style.transition = 'opacity 0.3s ease';
+
+    setTimeout(() => {
+        document.getElementById('url-input').value = '';
+        selectedFile = null;
+        document.getElementById('dropzone-title').innerText = "Drag & Drop video file here";
+        document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
+        document.getElementById('dropzone-browse-btn').style.display = "inline-block";
+        document.getElementById('file-action-container').style.display = "none";
+
+        document.getElementById('progress-card').style.display = 'none';
+        resultsSection.style.display = 'none';
+        resultsSection.style.opacity = '1';
+        document.getElementById('clips-grid').innerHTML = '';
+
+        goToWizardStep(1);
+        dismissError();
+    }, 300);
 }
 
 // Poll Job Status Loop
@@ -429,7 +481,7 @@ function pollJobStatus(jobId) {
     pollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`);
-            
+
             if (response.status === 404) {
                 clearInterval(pollingInterval);
                 showError("Processing interrupted: Job not found on server.");
@@ -442,7 +494,11 @@ function pollJobStatus(jobId) {
             if (job.status === 'completed') {
                 clearInterval(pollingInterval);
                 hideProgress();
-                renderResults(job.result);
+                if (job.result && job.result.status === 'needs_review') {
+                    renderInteractiveWorkspace(job.result);
+                } else {
+                    renderResults(job.result);
+                }
             } else if (job.status === 'failed') {
                 clearInterval(pollingInterval);
                 showError(normalizeErrorMessage(job.error) || "Job processing failed.");
@@ -453,6 +509,103 @@ function pollJobStatus(jobId) {
             console.warn("Polling error:", e);
         }
     }, 2500);
+}
+
+// Interactive Editing Workspace
+let currentWorkspaceJob = null;
+
+function renderInteractiveWorkspace(resultData) {
+    currentWorkspaceJob = resultData;
+    document.getElementById('interactive-workspace').style.display = 'block';
+
+    const list = document.getElementById('editor-clips-list');
+    list.innerHTML = '';
+
+    if (!resultData || !resultData.clips || resultData.clips.length === 0) {
+        showError("No valid clips were generated for this video.");
+        return;
+    }
+
+    resultData.clips.forEach((clip, index) => {
+        const card = document.createElement('div');
+        card.className = 'clip-card';
+        card.style = 'flex-direction: column; background: #11141A; padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); gap: 16px; margin-bottom: 24px; display: flex;';
+
+        const fullTranscript = clip.captions.map(c => c.word).join(" ");
+
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #FFF;">Clip ${index + 1}: ${escapeHtml(clip.title)}</h3>
+                <span class="score-badge"><i class="fa-solid fa-fire"></i> ${(clip.viralScore / 10).toFixed(1)}</span>
+            </div>
+            <div style="display: flex; gap: 16px;">
+                <div style="flex: 1;">
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Start Time (seconds)</label>
+                    <input type="number" step="0.1" value="${clip.startSec}" id="start-time-${index}" class="form-input" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div style="flex: 1;">
+                    <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">End Time (seconds)</label>
+                    <input type="number" step="0.1" value="${clip.endSec}" id="end-time-${index}" class="form-input" style="width: 100%; box-sizing: border-box;">
+                </div>
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Transcript (Edit to fix typos)</label>
+                <textarea id="transcript-${index}" class="form-input" style="width: 100%; height: 80px; resize: vertical; box-sizing: border-box;">${escapeHtml(fullTranscript)}</textarea>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+}
+
+async function submitRenderJob() {
+    if (!currentWorkspaceJob) return;
+
+    // Collect the edited values
+    currentWorkspaceJob.clips.forEach((clip, index) => {
+        const start = parseFloat(document.getElementById(`start-time-${index}`).value);
+        const end = parseFloat(document.getElementById(`end-time-${index}`).value);
+        const transcriptText = document.getElementById(`transcript-${index}`).value;
+
+        clip.startSec = start;
+        clip.endSec = end;
+
+        const newWords = transcriptText.trim().split(/\\s+/);
+        const durationMs = Math.max(1, (end - start) * 1000);
+        const timePerWord = durationMs / Math.max(1, newWords.length);
+
+        const newCaptions = newWords.map((w, i) => ({
+            word: w,
+            startMs: Math.round(i * timePerWord),
+            endMs: Math.round((i + 1) * timePerWord)
+        }));
+
+        clip.captions = newCaptions;
+    });
+
+    document.getElementById('interactive-workspace').style.display = 'none';
+    showProgress("Initializing Render Engine...", 0);
+
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Render start failed: ${errText}`);
+        }
+
+        const data = await response.json();
+        if (data.job_id) {
+            pollJobStatus(data.job_id);
+        } else {
+            throw new Error("Invalid response from render engine.");
+        }
+    } catch (err) {
+        showError(err.message || "Failed to start rendering job.");
+    }
 }
 
 // Render Clips Gallery Results (Vizard.ai Card Design)
@@ -467,6 +620,7 @@ function renderResults(resultData) {
     }
 
     document.getElementById('clips-total-badge').innerText = `${resultData.clips.length} Clips Ready`;
+    window.currentClips = resultData.clips;
 
     resultData.clips.forEach((clip, index) => {
         const rawClipUrl = clip.clipUrl || clip.clip_url || '';
@@ -476,19 +630,31 @@ function renderResults(resultData) {
         const duration = Math.round((clip.endSec - clip.startSec) || 30);
         const scoreVizard = (viralScore / 10).toFixed(1);
 
-        const autoCaption = `Wait until you hear this! 🤯 ${escapeHtml(clipTitle)}... This is absolutely crazy. \n\n#viral #fyp #podcast #clips`;
+        const clipReason = clip.viralReason || clip.hookType || 'High-engagement segment selected by the processing engine.';
+        const autoCaption = `${escapeHtml(clipTitle)}\n\n${escapeHtml(clipReason)}`;
+
+        const brollTag = clip.brollQuery ? `
+            <div class="auto-caption-box" style="background: rgba(40,120,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 12px;">
+                <div style="font-size: 0.7rem; color: #4FA8FF; font-weight: 700; margin-bottom: 4px; display:flex; justify-content:space-between;">
+                    <span><i class="fa-solid fa-images"></i> AI B-Roll Overlay</span>
+                </div>
+                <p style="font-size: 0.75rem; color: #CCC; margin: 0; line-height: 1.4;">Context: "${escapeHtml(clip.brollQuery)}"</p>
+            </div>
+        ` : '';
 
         const card = document.createElement('div');
         card.className = 'clip-card';
         card.innerHTML = `
-            <div class="clip-thumb" onclick="openVideoModal('${clipUrl}', '${escapeHtml(clipTitle)}', '${duration}s • 9:16 Vertical format')">
+            <div class="clip-thumb" onclick="openVideoModal(${index})">
                 <video src="${clipUrl}" playsinline preload="metadata" style="width:100%; height:100%; object-fit:cover; border-radius:12px;"></video>
                 <div class="score-badge-vizard" style="position:absolute; top:8px; left:8px; background:rgba(120,40,230,0.9); color:#FFF; font-weight:800; font-size:0.75rem; padding:4px 8px; border-radius:14px;">✦ ${scoreVizard}</div>
                 <div class="duration-badge-vizard" style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.8); color:#FFF; font-weight:700; font-size:0.7rem; padding:2px 6px; border-radius:4px;">00:${duration < 10 ? '0' + duration : duration}</div>
             </div>
             <div class="clip-info" style="padding:10px;">
                 <h3 class="clip-title" style="font-size:0.88rem; font-weight:700; line-height:1.3; color:#FFF; margin-bottom:8px;">#${index + 1} ${escapeHtml(clipTitle)}</h3>
-                
+
+                ${brollTag}
+
                 <div class="auto-caption-box" style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; margin-bottom: 12px; cursor: pointer;" onclick="navigator.clipboard.writeText('${autoCaption.replace(/\n/g, ' ')}'); alert('Caption copied!');">
                     <div style="font-size: 0.7rem; color: var(--primary-neon); font-weight: 700; margin-bottom: 4px; display:flex; justify-content:space-between;">
                         <span><i class="fa-solid fa-wand-magic-sparkles"></i> AI Caption</span>
@@ -498,12 +664,12 @@ function renderResults(resultData) {
                 </div>
 
                 <div class="clip-actions" style="display:flex; gap:8px;">
-                    <a href="${clipUrl}" download target="_blank" class="btn-primary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;">
-                        <i class="fa-solid fa-download"></i> Save
-                    </a>
-                    <button type="button" class="btn-secondary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center;" onclick="shareClip('${escapeHtml(clipTitle)}', '${clipUrl}')">
-                        <i class="fa-brands fa-tiktok"></i> Share
+                    <button type="button" class="btn-secondary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center; background: rgba(120,40,230,0.2); color: #B388FF; border: 1px solid rgba(120,40,230,0.5); transition: all 0.2s;" onclick="shareClip('${escapeHtml(clipTitle)}', '${clipUrl}')">
+                        <i class="fa-solid fa-paper-plane"></i> Publish
                     </button>
+                    <a href="${clipUrl}" download target="_blank" class="btn-primary" style="flex:1; padding:8px; font-size:0.8rem; border-radius:8px; justify-content:center; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #FFF; transition: all 0.2s;">
+                        <i class="fa-solid fa-download"></i> Download
+                    </a>
                 </div>
             </div>
         `;
@@ -519,13 +685,66 @@ function escapeHtml(text) {
 }
 
 // Modal Video Preview
-function openVideoModal(url, title, desc) {
+function openVideoModal(clipIndex) {
+    const clip = window.currentClips[clipIndex];
+    const url = clip.clipUrl ? (clip.clipUrl.startsWith('/') ? `${MODAL_BASE_URL}${clip.clipUrl}` : clip.clipUrl) : '';
+    const title = clip.hookType ? `${clip.hookType} Hook` : `Clip ${clipIndex + 1}`;
+    const duration = clip.duration ? Math.round(clip.duration) : 30;
+    const desc = `${duration}s • 9:16 Vertical format`;
+
     const modal = document.getElementById('video-modal');
     const player = document.getElementById('modal-video-player');
     player.src = url;
     document.getElementById('modal-clip-title').innerText = title;
-    document.getElementById('modal-clip-desc').innerText = desc || "High retention short segment";
-    document.getElementById('modal-download-link').href = url;
+    document.getElementById('modal-clip-desc').innerText = desc;
+    window.currentClipUrl = url; // Store url for download logic
+    window.currentClipTitle = title;
+
+    // Update Timeline Component
+    document.getElementById('timeline-duration').innerText = `00:${duration < 10 ? '0'+duration : duration}`;
+
+    // Render Transcript
+    const transcriptContainer = document.getElementById('transcript-container');
+    if (clip.captions && clip.captions.length > 0) {
+        transcriptContainer.innerHTML = '';
+        clip.captions.forEach((caption, idx) => {
+            const span = document.createElement('span');
+            span.innerText = caption.word + ' ';
+            span.className = 'transcript-word';
+            span.dataset.start = caption.start;
+            span.dataset.end = caption.end;
+            span.onclick = () => {
+                player.currentTime = caption.start;
+                player.play();
+            };
+            transcriptContainer.appendChild(span);
+        });
+    } else {
+        transcriptContainer.innerHTML = '<p style="text-align:center; color:#666;">No transcript available.</p>';
+    }
+
+    // Highlighting Logic
+    player.ontimeupdate = () => {
+        const currentTime = player.currentTime;
+        const words = transcriptContainer.querySelectorAll('.transcript-word');
+        words.forEach(word => {
+            const start = parseFloat(word.dataset.start);
+            const end = parseFloat(word.dataset.end);
+            if (currentTime >= start && currentTime <= end) {
+                word.style.color = '#FFF';
+                word.style.background = 'rgba(255,255,255,0.1)';
+                word.style.borderRadius = '4px';
+                // Auto-scroll
+                const containerHeight = transcriptContainer.clientHeight;
+                const scrollPos = word.offsetTop - containerHeight / 2;
+                transcriptContainer.scrollTo({ top: scrollPos, behavior: 'smooth' });
+            } else {
+                word.style.color = '#888';
+                word.style.background = 'transparent';
+            }
+        });
+    };
+
     modal.classList.add('active');
 }
 
@@ -543,16 +762,87 @@ function closeVideoModalForce() {
     modal.classList.remove('active');
 }
 
+// Download Logic to bypass Cross-Origin limits
+async function downloadClip() {
+    if (!window.currentClipUrl) return;
+
+    const btn = document.getElementById('modal-download-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(window.currentClipUrl);
+        const blob = await response.blob();
+
+        // Create an object URL from the Blob
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Clean up title for filename
+        const safeTitle = (window.currentClipTitle || "LClipz-Video").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        a.download = `${safeTitle}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error("Download failed:", e);
+        alert("Download failed. Please check your connection or try again.");
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
 // Social Share Logic
+let currentPublishUrl = '';
+
 function shareClip(title, url) {
-    if (navigator.share) {
+    const fullUrl = url && url.startsWith('http') ? url : window.location.href;
+    currentPublishUrl = fullUrl;
+
+    // Attempt native share on Mobile devices if supported
+    if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
         navigator.share({
             title: title,
             text: `Check out this viral clip: ${title}\n\n#viral #fyp #podcast`,
-            url: url
-        }).catch(err => console.warn('Share failed:', err));
+            url: fullUrl
+        }).catch(err => {
+            console.warn('Share API failed, falling back to modal:', err);
+            openPublishModal();
+        });
     } else {
-        navigator.clipboard.writeText(url);
-        alert('Share link copied to clipboard! Paste it on your social media.');
+        // On Desktop, open the mock Publish to Socials Modal
+        openPublishModal();
     }
+}
+
+function openPublishModal() {
+    document.getElementById('publish-modal').style.display = 'flex';
+}
+
+function closePublishModal(e) {
+    if (e.target.id === 'publish-modal') {
+        closePublishModalForce();
+    }
+}
+
+function closePublishModalForce() {
+    document.getElementById('publish-modal').style.display = 'none';
+}
+
+function mockSocialPublish(platform) {
+    alert(`To publish directly to ${platform}, you must connect your account in Settings (OAuth API required). For now, use the link or download button.`);
+}
+
+function copyPublishLinkFallback() {
+    navigator.clipboard.writeText(currentPublishUrl).then(() => {
+        alert('Publish link copied to clipboard! Paste it on your social media.');
+        closePublishModalForce();
+    }).catch(() => {
+        alert('Unable to copy link to clipboard.');
+    });
 }

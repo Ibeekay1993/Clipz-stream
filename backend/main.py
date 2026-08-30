@@ -55,6 +55,12 @@ def cleanup_expired_files(directories: List[str], max_age_seconds: float = 1800)
             except Exception as e:
                 logger.warning(f"Failed to delete {fpath}: {e}")
 
+def resolve_media_binary(env_name: str, executable: str) -> str:
+    configured = os.getenv(env_name)
+    if configured:
+        return configured
+    return shutil.which(executable) or executable
+
 def worker_loop(directories, max_age, interval):
     while True:
         cleanup_expired_files(directories, max_age)
@@ -73,6 +79,7 @@ async def startup_event():
 class ProcessRequest(BaseModel):
     url: str
     num_clips: int = 3
+    burn_captions: bool = True
 
 class RenderRequest(BaseModel):
     url: str
@@ -120,13 +127,13 @@ class IngestionBlockedError(Exception):
 
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
-    
+
     vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
     if not vid_match:
         raise Exception("Could not parse YouTube video ID from URL")
-    
+
     v_id = vid_match.group(1)
-    
+
     rapidapi_key = os.getenv("RAPIDAPI_KEY")
     if not rapidapi_key:
         raise Exception("RAPIDAPI_KEY is missing from environment. Please add it to Modal Secrets.")
@@ -135,33 +142,33 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
         'x-rapidapi-host': 'cloud-api-hub-youtube-downloader.p.rapidapi.com',
         'x-rapidapi-key': rapidapi_key
     }
-    
+
     if job_id: push_job_update(job_id, progress=5, current_step="Connecting to high-speed ingest network...")
-    
+
     api_url = f"https://cloud-api-hub-youtube-downloader.p.rapidapi.com/download?id={v_id}"
     logger.info(f"Fetching video info from API for {v_id}")
     req = requests.get(api_url, headers=headers, timeout=20)
-    
+
     if req.status_code != 200 or (isinstance(req.json(), dict) and 'error' in req.json()):
         raise Exception("Failed to fetch video stream from RapidAPI. Please use 'Upload Video File' instead.")
-        
+
     data = req.json()
     formats = data if isinstance(data, list) else data.get('formats', [])
     combined = [f for f in formats if str(f.get('acodec')) != 'none' and str(f.get('vcodec')) != 'none']
-    
+
     if not combined:
         raise Exception("No combined audio/video streams found. Please use 'Upload Video File' instead.")
-        
+
     combined.sort(key=lambda x: int(x.get('height') or 0), reverse=True)
     best_stream = combined[0]
     stream_url = best_stream.get('url')
-    
+
     if not stream_url:
         raise Exception("Stream URL was empty from API.")
-        
+
     if job_id: push_job_update(job_id, progress=10, current_step=f"Downloading high-resolution source video ({best_stream.get('height')}p)...")
     logger.info(f"Downloading {best_stream.get('height')}p stream...")
-    
+
     stream_resp = requests.get(stream_url, stream=True, timeout=30)
     if stream_resp.status_code == 200:
         with open(out_file, "wb") as f_out:
@@ -170,7 +177,7 @@ def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
         if os.path.getsize(out_file) > 100_000:
             if job_id: push_job_update(job_id, progress=20, current_step="Video ingestion completed successfully.")
             return out_file
-            
+
     raise Exception(f"Ingestion failed for {url}: Could not download media streams. Please use 'Upload Video File' instead.")
 
 def is_youtube_url(url: str) -> bool:
@@ -304,9 +311,9 @@ def download_youtube_section(url: str, out_dir: str, start: float, end: float, i
                             return out_file
         except Exception as ce:
             logger.warning(f"Cobalt API fallback note for section: {ce}")
-            
+
         raise Exception(f"Failed to fetch video stream. YouTube has temporarily blocked our server. Please use 'Upload Video File' instead.")
-        
+
     return out_file
 
 # ============================================================================
@@ -334,7 +341,7 @@ def get_duration(video_path: str) -> float:
     try:
         res = subprocess.run(
             [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                resolve_media_binary("FFPROBE_BINARY", "ffprobe"), "-v", "error", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", video_path
             ],
             check=True,
@@ -377,8 +384,8 @@ def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
 def transcribe(video_path: str) -> List[dict]:
     # 1. Extract audio
     audio_path = video_path + ".mp3"
-    subprocess.run(["ffmpeg", "-y", "-i", video_path, "-vn", "-c:a", "libmp3lame", "-q:a", "5", audio_path], check=True, capture_output=True)
-    
+    subprocess.run([resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-i", video_path, "-vn", "-c:a", "libmp3lame", "-q:a", "5", audio_path], check=True, capture_output=True)
+
     # 2. Call Groq with native word-level timestamps
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     with open(audio_path, "rb") as f:
@@ -390,11 +397,11 @@ def transcribe(video_path: str) -> List[dict]:
         )
     if os.path.exists(audio_path):
         os.remove(audio_path)
-    
+
     # 3. Parse word-level timestamps directly from Groq if available
     out = []
     data = resp.model_dump() if hasattr(resp, "model_dump") else (resp if isinstance(resp, dict) else {})
-    
+
     top_words = data.get("words", [])
     if top_words:
         for w in top_words:
@@ -451,11 +458,11 @@ def score(c: Chunk) -> Chunk:
     tl = c.text.lower(); dur = c.duration; pts = 70; reasons = ["High-retention speech hook"]; hook = Hook.GENERAL
     if not (10 <= dur <= 90):
         c.score = 0; c.viable = False; return c
-    
+
     T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
     for pat, h, p in T1:
         if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook - {h.value}"); break
-        
+
     c.score = min(99, max(50, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = True
     return c
 
@@ -488,7 +495,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines_events = []
     clip_words = [w for w in words if (w.get("startMs", 0)/1000.0) >= clip_start_sec - 0.5]
-    
+
     def format_time(sec):
         sec = max(0.0, sec)
         hrs = int(sec // 3600)
@@ -510,11 +517,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for i in range(0, len(clip_words), chunk_size):
         group = clip_words[i:i + chunk_size]
         if not group: continue
-        
+
         for idx, active_w in enumerate(group):
             w_start = max(0.0, (active_w["startMs"] / 1000.0) - clip_start_sec)
             w_end = max(w_start + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec)
-            
+
             formatted_words = []
             for j, w in enumerate(group):
                 word_str = ass_escape(str(w.get("word", ""))).upper()
@@ -524,7 +531,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     formatted_words.append(f"{{\\c&H0000FF00&}}{word_str}{{\\r}}")
                 else:
                     formatted_words.append(f"{{\\c&H00FFFFFF&}}{word_str}")
-            
+
             line_text = " ".join(formatted_words)
             start_str = format_time(w_start)
             end_str = format_time(w_end)
@@ -544,22 +551,22 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
         if not os.path.exists(vpath): return []
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         if not os.path.exists(cascade_path): return []
-        
+
         face_cascade = cv2.CascadeClassifier(cascade_path)
         cap = cv2.VideoCapture(vpath)
         if not cap.isOpened(): return []
-        
+
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         width = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1920.0
-        
+
         start_frame = int(start_sec * fps)
         end_frame = int(end_sec * fps)
         frame_step = max(1, int(fps / sample_fps))
-        
+
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         current_frame = start_frame
         points = []
-        
+
         while current_frame <= end_frame:
             ret, frame = cap.read()
             if not ret: break
@@ -597,12 +604,12 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
     if bin_vals and curr_bin is not None:
         smoothed.append((curr_bin, sum(bin_vals) / len(bin_vals)))
     if not smoothed: return "(in_w-out_w)/2"
-    
+
     expr_parts = []
     for t_sec, norm_x in smoothed:
         target_x = f"min(max(0,in_w*{norm_x:.3f}-out_w/2),in_w-out_w)"
         expr_parts.append(f"gte(t,{t_sec:.1f}),{target_x}")
-        
+
     expr = "(in_w-out_w)/2"
     for part in reversed(expr_parts):
         cond, val = part.split(",", 1)
@@ -612,12 +619,12 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
 def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None, burn_captions: bool = False) -> str:
     """Safe FFmpeg crop + OpenCV Face-Tracking + ASS Kinetic Subtitles + Supabase CDN Upload"""
     dur = end - start
-    
+
     # 1. Analyze face positions for dynamic 9:16 speaker tracking
     face_pts = analyze_face_centers(src, start, end)
     crop_x_expr = build_dynamic_crop_x_expr(face_pts)
     logger.info(f"OpenCV Face Tracking generated {len(face_pts)} face samples. Crop X expr: {crop_x_expr[:60]}...")
-    
+
     # 2. Generate ASS Subtitle File if words provided
     ass_path = out + ".ass"
     use_subtitles = False
@@ -627,16 +634,16 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
             use_subtitles = os.path.exists(ass_path)
         except Exception as e:
             logger.warning(f"ASS subtitle generation failed: {e}")
-            
+
     crop_filter = f"scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=720:1280"
     if use_subtitles:
         escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
         vf = f"{crop_filter},subtitles='{escaped_ass}',fps=30"
     else:
         vf = f"{crop_filter},fps=30"
-        
+
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
         "-ss", str(max(0.0, start - 1.5)), "-i", src, "-ss", str(min(1.5, start)), "-t", str(dur),
         "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
@@ -735,13 +742,13 @@ def gemini_analyze_chunks(chunks: List[Chunk], n: int) -> List[dict]:
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
         return []
-        
+
     payload_chunks = []
     for idx, c in enumerate(chunks):
         payload_chunks.append({
             "id": idx, "start": round(c.start, 1), "end": round(c.end, 1), "duration": round(c.duration, 1), "text": c.text
         })
-        
+
     prompt = f"""
 You are an elite viral video editor for TikTok, Instagram Reels, and YouTube Shorts (like OpusClip).
 Analyze the following transcript chunks from a video and select EXACTLY {n} of the most engaging, high-retention segments. YOU MUST RETURN EXACTLY {n} CLIPS, NO MORE, NO LESS.
@@ -811,19 +818,19 @@ def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
     """
     logger.info("Calling Private Modal Qwen3.6 Inference Endpoint...")
     clips = modal_inference_analyze_chunks(chunks, n)
-    
+
     if not clips:
         logger.info("Delegating to DeepSeek-R1...")
         clips = deepseek_analyze_chunks(chunks, n)
-        
+
     if not clips:
         logger.info("Delegating to Groq Llama-3...")
         clips = llama_analyze_chunks(chunks, n)
-        
+
     if not clips:
         logger.info("Delegating to Google Gemini 2.0 Flash...")
         clips = gemini_analyze_chunks(chunks, n)
-        
+
     return clips or []
 
 # Persistent Job Tracking
@@ -893,7 +900,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     update_job(10, "Extracting audio & speech transcription...")
     logger.info("Starting Multi-AI Engine transcript analysis...")
     words = []
-    
+
     # Fast-Track 1: Try YoutubeTranscriptApi for YouTube links
     if "youtube.com" in url_or_name or "youtu.be" in url_or_name:
         try:
@@ -920,7 +927,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         except Exception as te:
             logger.warning(f"Speech transcription unavailable, falling back to timed clips: {te}")
             words = []
-        
+
     chunks = semantic_chunks(words) if words else []
     if not chunks:
         logger.info("Generating fail-safe timed chunks...")
@@ -945,7 +952,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 c.broll_query = la.get("brollQuery", "")
                 c.text = la.get("title", c.title()) # Override title
                 chosen_chunks.append((c, la.get("title", c.title())))
-    
+
     if len(chosen_chunks) < n:
         scored = [score(c) for c in chunks]
         heuristic_chosen = [(c, c.title()) for c in select(scored, n)]
@@ -955,28 +962,53 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    update_job(50, "Analysis Complete. Awaiting User Edits...")
-    clips_out = []
-    for i, (chunk, title_text) in enumerate(chosen_chunks):
-        off = chunk.words[0]["startMs"] if chunk.words else 0
-        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
-        clips_out.append({
-            "id": i,
-            "title": title_text,
-            "startSec": int(chunk.start),
-            "endSec": int(chunk.end),
-            "viralScore": chunk.score or 85,
-            "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
-            "captions": captions,
-            "hookType": chunk.hook,
-            "durationSec": round(chunk.duration, 1),
-            "vpath": vpath # Store vpath so the render endpoint knows what to render
-        })
+    update_job(55, "Rendering downloadable MP4 clips...")
+    clips_out = [None] * len(chosen_chunks)
+
+    def process_selected_chunk(index_and_tuple):
+        i, (chunk, title_text) = index_and_tuple
+        fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
+        fpath = os.path.join(CLIPS_DIR, fname)
+        try:
+            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words, burn_captions=burn_captions)
+            if clip_url.startswith("/clips/"):
+                clip_url = f"{base}{clip_url}"
+
+            off = chunk.words[0]["startMs"] if chunk.words else int(chunk.start * 1000)
+            captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+            return i, {
+                "id": i,
+                "title": title_text,
+                "startSec": int(chunk.start),
+                "endSec": int(chunk.end),
+                "viralScore": chunk.score or 85,
+                "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
+                "captions": captions,
+                "hookType": chunk.hook,
+                "durationSec": round(chunk.duration, 1),
+                "clipUrl": clip_url,
+                "clip_url": clip_url,
+                "brollQuery": getattr(chunk, "broll_query", ""),
+            }
+        except Exception as e:
+            logger.error(f"Failed to render selected chunk {i}: {e}")
+            return i, None
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, max(1, len(chosen_chunks)))) as executor:
+        futures = [executor.submit(process_selected_chunk, item) for item in enumerate(chosen_chunks)]
+        for future in concurrent.futures.as_completed(futures):
+            idx, rendered = future.result()
+            if rendered:
+                clips_out[idx] = rendered
+                update_job(60 + int(((idx + 1) / max(1, len(chosen_chunks))) * 35), f"Rendered clip {idx + 1} of {len(chosen_chunks)}...")
 
     clips_out = [c for c in clips_out if c is not None]
+    if not clips_out:
+        raise Exception("No clips could be rendered into MP4 output.")
 
-    result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else 0, "clips": clips_out}
-    logger.info(f"Pipeline completed successfully. Generated {len(clips_out)} viable clips.")
+    result = {"url": url_or_name, "duration": words[-1]["endMs"]/1000 if words else get_duration(vpath), "clips": clips_out, "status": "completed"}
+    logger.info(f"Pipeline completed successfully. Rendered {len(clips_out)} clips.")
     update_job(100, "Complete")
     return result
 
@@ -1040,7 +1072,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
         raise Exception("No viable caption segments selected.")
 
     clips_out = [None] * len(chosen_chunks)
-    
+
     def process_youtube_clip(i, chunk, title_text):
         section_start = max(0.0, chunk.start - 2.0)
         section_end = chunk.end + 2.0
@@ -1096,7 +1128,13 @@ def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
                 execute_job_bg(job_id, section_path, url, n, base)
                 return
             except Exception as section_err:
-                logger.warning(f"Bounded YouTube section fallback failed: {section_err}, trying full video ingest...")
+                logger.warning(f"Bounded YouTube section fallback failed: {section_err}")
+                if os.getenv("RAPIDAPI_KEY"):
+                    push_job_update(job_id, progress=8, current_step="Using configured YouTube ingestion provider...")
+                    vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
+                    execute_job_bg(job_id, vpath, url, n, base)
+                    return
+                raise Exception("YouTube link import is not configured for this cloud server. Upload the video file directly to generate clips reliably.")
 
         vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
         execute_job_bg(job_id, vpath, url, n, base)
@@ -1109,16 +1147,16 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         is_yt = is_youtube_url(url)
         vpath = url if is_yt else url
-        
+
         def update_job(prog: int, step: str):
             push_job_update(job_id, prog, step)
-            
+
         update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
         clips_out = [None] * len(clips)
-        
+
         def process_clip(i, clip):
             fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
             fpath = os.path.join(CLIPS_DIR, fname)
@@ -1129,18 +1167,18 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                     sec_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i)
                     adj_start = float(clip['startSec']) - section_start
                     adj_end = float(clip['endSec']) - section_start
-                    
+
                     w_adjusted = []
                     for w in clip['captions']:
                         w_copy = w.copy()
                         w_copy["startMs"] = w["startMs"]
                         w_copy["endMs"] = w["endMs"]
                         w_adjusted.append(w_copy)
-                        
+
                     clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True)
                 else:
                     clip_url = transcode_and_upload(vpath, float(clip['startSec']), float(clip['endSec']), fpath, words=clip['captions'], burn_captions=True)
-                
+
                 if clip_url.startswith("/clips/"):
                     clip_url = f"{base}{clip_url}"
                 clip['clip_url'] = clip_url
@@ -1156,8 +1194,16 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                 idx, res_data = future.result()
                 if res_data:
                     clips_out[idx] = res_data
-        
+
         clips_out = [c for c in clips_out if c is not None]
+
+        if modal_volume:
+            try:
+                modal_volume.commit()
+                logger.info("Committed modal_volume after all clips transcoded.")
+            except Exception as ve:
+                logger.warning(f"Modal volume commit note in render job: {ve}")
+
         res = {"url": url, "duration": 0, "clips": clips_out, "status": "completed"}
         push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
     except Exception as e:
@@ -1181,7 +1227,7 @@ async def process_video_api(body: ProcessRequest, request: Request):
     base = str(request.base_url).rstrip("/")
     try:
         vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
-        return await run_in_threadpool(run_pipeline, vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base)
+        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, burn_captions=body.burn_captions)
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
@@ -1191,45 +1237,40 @@ run_background_upload_job_modal = None
 run_background_render_job_modal = None
 
 @app.post("/api/jobs/render")
-async def create_render_job_api(body: RenderRequest, request: Request = None):
+async def create_render_job_api(body: RenderRequest, background_tasks: BackgroundTasks, request: Request = None):
     if not body.clips: raise HTTPException(400, "Clips cannot be empty")
     base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
     job_id = uuid.uuid4().hex[:12]
-    
+
     push_job_update(
         job_id=job_id,
         progress=50,
         current_step="Applying your edits and rendering 1080p clips...",
         status="processing"
     )
-    
-    if run_background_render_job_modal:
-        run_background_render_job_modal.spawn(job_id, body.url, body.clips, base)
-    else:
-        logger.error("Modal background function not initialized!")
+
+    background_tasks.add_task(execute_render_job_bg, job_id, body.url, body.clips, base)
+    logger.info(f"Queued render background task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
 
 @app.post("/api/jobs/create")
-async def create_job_api(body: ProcessRequest, request: Request = None):
+async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks, request: Request = None):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
     job_id = uuid.uuid4().hex[:12]
-    
+
     push_job_update(
         job_id=job_id,
         progress=2,
         current_step="Ingesting video & validating media streams...",
         status="processing"
     )
-    
+
     num_c = max(1, min(body.num_clips, 8))
-    
-    if run_background_job_modal:
-        run_background_job_modal.spawn(job_id, body.url.strip(), num_c, base)
-        logger.info(f"Spawned Modal background function for URL job {job_id}")
-    else:
-        logger.error("Modal background function not initialized!")
+
+    background_tasks.add_task(execute_url_job_bg, job_id, body.url.strip(), num_c, base)
+    logger.info(f"Queued URL background task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
 
@@ -1250,7 +1291,7 @@ async def get_job_status(job_id: str):
     raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, file: UploadFile = File(...), num_clips: int = Form(3)):
+async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
     base = str(request.base_url).rstrip("/")
     ext = os.path.splitext(file.filename)[1] or ".mp4"
     job_id = uuid.uuid4().hex[:12]
@@ -1258,22 +1299,19 @@ async def upload_video_api(request: Request, file: UploadFile = File(...), num_c
     try:
         with open(vpath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
+
         push_job_update(
             job_id=job_id,
             progress=5,
             current_step="File uploaded successfully. Preparing AI pipeline...",
             status="processing"
         )
-        
+
         num_c = max(1, min(num_clips, 8))
-        
-        if run_background_upload_job_modal:
-            run_background_upload_job_modal.spawn(job_id, vpath, file.filename, num_c, base)
-            logger.info(f"Spawned Modal background function for uploaded file job {job_id}")
-        else:
-            logger.error("Modal background upload function not initialized!")
-        
+
+        background_tasks.add_task(execute_job_bg, job_id, vpath, file.filename, num_c, base)
+        logger.info(f"Queued uploaded file background task for job {job_id}")
+
         return {"job_id": job_id, "status": "processing"}
     except Exception as e:
         logger.error(f"Upload failed: {e}")
@@ -1293,12 +1331,13 @@ async def serve_clip(filename: str):
 
 @app.get("/api/capabilities")
 async def capabilities():
-    default_ck = os.path.join(os.path.dirname(__file__), "youtube_cookies.txt")
-    has_cookies = os.path.exists(default_ck) or bool(os.getenv("YTDLP_COOKIES_CONTENT") or os.getenv("YTDLP_PROXY") or os.getenv("YTDLP_COOKIES_FILE"))
+    cookie_file = os.getenv("YTDLP_COOKIES_FILE")
+    has_cookie_file = bool(cookie_file and os.path.exists(cookie_file))
+    youtube_configured = bool(os.getenv("RAPIDAPI_KEY") or os.getenv("YTDLP_COOKIES_CONTENT") or os.getenv("YTDLP_PROXY") or has_cookie_file)
     return {
         "upload_enabled": True,
-        "youtube_link_import_enabled": has_cookies,
-        "youtube_message": "YouTube link import active with cloud cookies. Upload MP4 files for direct clipping."
+        "youtube_link_import_enabled": youtube_configured,
+        "youtube_message": "YouTube link import needs a configured ingestion provider. Upload MP4 files for the most reliable clipping."
     }
 @app.get("/health")
 def health():
@@ -1321,7 +1360,7 @@ try:
         .apt_install("ffmpeg")
     )
     modal_app = modal.App("clipz-stream")
-    
+
     # Load secrets directly from Modal Cloud (configured in Modal Dashboard)
     secret = modal.Secret.from_name("clipz-secrets")
     secrets_list = [secret]
@@ -1331,40 +1370,40 @@ try:
     modal_volume = modal_volume_instance  # bind to global
 
     @modal_app.function(
-        image=image, 
-        timeout=600, 
-        cpu=2.0, 
-        secrets=secrets_list, 
+        image=image,
+        timeout=600,
+        cpu=2.0,
+        secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
     def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str):
         execute_url_job_bg(job_id, url, num_clips, base_url)
 
     @modal_app.function(
-        image=image, 
-        timeout=600, 
-        cpu=2.0, 
-        secrets=secrets_list, 
+        image=image,
+        timeout=600,
+        cpu=2.0,
+        secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
     def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
         execute_job_bg(job_id, vpath, filename, num_clips, base_url)
 
     @modal_app.function(
-        image=image, 
-        timeout=600, 
-        cpu=2.0, 
-        secrets=secrets_list, 
+        image=image,
+        timeout=600,
+        cpu=2.0,
+        secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
     def run_background_render_job_modal(job_id: str, url: str, clips: list, base_url: str):
         execute_render_job_bg(job_id, url, clips, base_url)
 
     @modal_app.function(
-        image=image, 
-        timeout=600, 
-        cpu=2.0, 
-        secrets=secrets_list, 
+        image=image,
+        timeout=600,
+        cpu=2.0,
+        secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
     @modal.asgi_app()
