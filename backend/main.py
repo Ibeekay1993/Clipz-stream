@@ -355,6 +355,55 @@ def get_duration(video_path: str) -> float:
         logger.warning(f"Could not probe video duration for {video_path}: {e}")
         return 0.0
 
+def validate_rendered_mp4(path: str, expected_min_duration: float = 0.5) -> None:
+    if not os.path.exists(path):
+        raise Exception("Rendered MP4 was not created")
+    size = os.path.getsize(path)
+    if size <= 1024:
+        raise Exception(f"Rendered MP4 is too small ({size} bytes)")
+    with open(path, "rb") as f:
+        header = f.read(32)
+    if b"ftyp" not in header:
+        raise Exception("Rendered file does not look like an MP4")
+
+    ffprobe_bin = os.getenv("FFPROBE_BINARY") or shutil.which("ffprobe")
+    if not ffprobe_bin:
+        logger.warning("ffprobe is unavailable; using basic MP4 validation only.")
+        return
+
+    res = subprocess.run(
+        [
+            ffprobe_bin, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_type,width,height:format=duration",
+            "-of", "json", path,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    probe = json.loads(res.stdout or "{}")
+    streams = probe.get("streams") or []
+    if not streams:
+        raise Exception("Rendered MP4 has no video stream")
+    width = int(streams[0].get("width") or 0)
+    height = int(streams[0].get("height") or 0)
+    duration = float((probe.get("format") or {}).get("duration") or 0)
+    if width <= 0 or height <= 0:
+        raise Exception("Rendered MP4 has invalid dimensions")
+    if duration < expected_min_duration:
+        raise Exception(f"Rendered MP4 duration is invalid ({duration:.2f}s)")
+
+def render_worker_count(requested_clips: int) -> int:
+    configured = os.getenv("CLIP_RENDER_WORKERS", "2")
+    try:
+        workers = int(configured)
+    except ValueError:
+        workers = 2
+    workers = max(1, min(workers, 4))
+    return min(workers, max(1, requested_clips))
+
 
 def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
     """Last-resort segmentation so uploads still produce downloadable clips."""
@@ -643,16 +692,30 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     else:
         vf = f"{crop_filter},fps=30"
 
-    cmd = [
-        resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", str(max(0.0, start - 1.5)), "-i", src, "-ss", str(min(1.5, start)), "-t", str(dur),
-        "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        logger.error(f"FFmpeg transcoding failed (exit code {res.returncode}): {res.stderr}")
-        raise Exception(f"FFmpeg transcode failed: {res.stderr[-300:] if res.stderr else 'Unknown error'}")
+    def run_render(filter_graph: str, label: str):
+        cmd = [
+            resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", str(max(0.0, start - 1.5)), "-i", src, "-ss", str(min(1.5, start)), "-t", str(dur),
+            "-vf", filter_graph, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise Exception(f"{label} FFmpeg transcode failed: {res.stderr[-300:] if res.stderr else 'Unknown error'}")
+        validate_rendered_mp4(out, max(0.5, min(dur, 1.0)))
+
+    try:
+        run_render(vf, "Advanced")
+    except Exception as primary_error:
+        logger.warning(f"Advanced render failed; retrying basic fallback: {primary_error}")
+        try:
+            if os.path.exists(out):
+                os.remove(out)
+        except Exception:
+            pass
+        fallback_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=720:1280,fps=30"
+        run_render(fallback_filter, "Fallback")
+
     if os.path.exists(ass_path):
         try: os.remove(ass_path)
         except: pass
@@ -995,7 +1058,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.error(f"Failed to render selected chunk {i}: {e}")
             return i, None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, max(1, len(chosen_chunks)))) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=render_worker_count(len(chosen_chunks))) as executor:
         futures = [executor.submit(process_selected_chunk, item) for item in enumerate(chosen_chunks)]
         for future in concurrent.futures.as_completed(futures):
             idx, rendered = future.result()
@@ -1195,7 +1258,7 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                 logger.error(f"Failed to transcode chunk {i}: {e}")
                 return i, None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(clips))) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=render_worker_count(len(clips))) as executor:
             futures = {executor.submit(process_clip, i, c): i for i, c in enumerate(clips)}
             for future in concurrent.futures.as_completed(futures):
                 idx, res_data = future.result()
@@ -1203,6 +1266,8 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                     clips_out[idx] = res_data
 
         clips_out = [c for c in clips_out if c is not None]
+        if not clips_out:
+            raise Exception("No clips could be rendered into MP4 output.")
 
         if modal_volume:
             try:
