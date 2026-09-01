@@ -45,12 +45,30 @@ function startCountdown() {
 
 // Auth Modal Logic
 async function initializeAuth() {
+    await captureOAuthRedirectSession();
     try {
         currentSession = JSON.parse(localStorage.getItem('clipz_session') || 'null');
     } catch (_err) {
         currentSession = null;
     }
     updateAuthUi(currentSession);
+}
+
+async function captureOAuthRedirectSession() {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const accessToken = hash.get('access_token');
+    if (!accessToken) return;
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/auth/session`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Could not finish Google login.');
+        localStorage.setItem('clipz_session', JSON.stringify(data));
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+    } catch (err) {
+        console.warn('OAuth session capture failed:', err);
+    }
 }
 
 function updateAuthUi(session) {
@@ -150,7 +168,8 @@ async function submitAuthForm() {
 }
 
 async function signInWithGoogle() {
-    showAuthMessage('Google sign-in needs OAuth provider setup in Supabase. Email/password sign up is ready now.', true);
+    const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
+    window.location.href = `${MODAL_BASE_URL}/api/auth/google?redirect_to=${redirectTo}`;
 }
 
 async function signOut() {

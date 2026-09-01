@@ -12,7 +12,7 @@ from yt_dlp.utils import download_range_func
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks, Body
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -121,6 +121,8 @@ def get_bearer_token(request: Request) -> Optional[str]:
 
 def verify_request_user(request: Request, claimed_user_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
     token = get_bearer_token(request)
+    if claimed_user_id and not token:
+        raise HTTPException(401, "Login token is required when user_id is provided.")
     if not token:
         return None, None
     try:
@@ -141,6 +143,16 @@ def verify_request_user(request: Request, claimed_user_id: Optional[str] = None)
     except Exception as e:
         logger.warning(f"Supabase token verification failed: {e}")
         raise HTTPException(401, "Could not verify login session.")
+
+def read_auth_user(access_token: str) -> dict:
+    res = requests.get(
+        supabase_auth_url("user"),
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {access_token}"},
+        timeout=20,
+    )
+    if res.status_code >= 400:
+        raise HTTPException(401, "Invalid or expired login session.")
+    return res.json()
 
 @app.post("/api/auth/signup")
 async def auth_signup(body: AuthRequest):
@@ -171,6 +183,24 @@ async def auth_login(body: AuthRequest):
     if res.status_code >= 400:
         raise HTTPException(res.status_code, res.text)
     return compact_auth_response(res.json())
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request):
+    token = get_bearer_token(request)
+    if not token:
+        raise HTTPException(401, "Login token is required.")
+    user = read_auth_user(token)
+    return {
+        "user_id": user.get("id"),
+        "email": user.get("email"),
+        "access_token": token,
+        "message": "Authenticated.",
+    }
+
+@app.get("/api/auth/google")
+async def auth_google(redirect_to: str):
+    url = f"{supabase_auth_url('authorize')}?provider=google&redirect_to={redirect_to}"
+    return RedirectResponse(url)
 
 
 DEFAULT_YOUTUBE_COOKIES = """# Netscape HTTP Cookie File
@@ -1538,7 +1568,8 @@ async def create_render_job_api(body: RenderRequest, background_tasks: Backgroun
         progress=50,
         current_step="Applying your edits and rendering 1080p clips...",
         status="processing",
-        user_id=user_id
+        user_id=user_id,
+        access_token=access_token
     )
 
     background_tasks.add_task(execute_render_job_bg, job_id, body.url, body.clips, base, user_id, access_token)
@@ -1558,7 +1589,8 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
         progress=2,
         current_step="Ingesting video & validating media streams...",
         status="processing",
-        user_id=user_id
+        user_id=user_id,
+        access_token=access_token
     )
 
     num_c = max(1, min(body.num_clips, 8))
@@ -1600,7 +1632,8 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
             progress=5,
             current_step="File uploaded successfully. Preparing AI pipeline...",
             status="processing",
-            user_id=verified_user_id
+            user_id=verified_user_id,
+            access_token=access_token
         )
 
         num_c = max(1, min(num_clips, 8))
