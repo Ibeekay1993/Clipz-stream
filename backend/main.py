@@ -1284,6 +1284,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
 
     update_job(55, "Rendering downloadable MP4 clips...")
     clips_out = [None] * len(chosen_chunks)
+    clip_errors = []
 
     def process_selected_chunk(index_and_tuple):
         i, (chunk, title_text) = index_and_tuple
@@ -1312,19 +1313,23 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             }
         except Exception as e:
             logger.error(f"Failed to render selected chunk {i}: {e}")
-            return i, None
+            return i, None, str(e)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=render_worker_count(len(chosen_chunks))) as executor:
         futures = [executor.submit(process_selected_chunk, item) for item in enumerate(chosen_chunks)]
         for future in concurrent.futures.as_completed(futures):
-            idx, rendered = future.result()
+            idx, rendered, *err = future.result()
             if rendered:
                 clips_out[idx] = rendered
                 update_job(60 + int(((idx + 1) / max(1, len(chosen_chunks))) * 35), f"Rendered clip {idx + 1} of {len(chosen_chunks)}...")
+            else:
+                errMsg = err[0] if err else "unknown error"
+                clip_errors.append(f"Clip {idx + 1}: {errMsg}")
 
     clips_out = [c for c in clips_out if c is not None]
     if not clips_out:
-        raise Exception("No clips could be rendered into MP4 output.")
+        detail = "; ".join(clip_errors) if clip_errors else "all clips failed during transcoding"
+        raise Exception(f"No clips could be rendered into MP4 output. {detail}")
 
     if modal_volume:
         try:
@@ -1484,6 +1489,7 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
 
         update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
         clips_out = [None] * len(clips)
+        clip_errors = []
 
         def process_clip(i, clip):
             fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
@@ -1492,18 +1498,27 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                 if is_yt:
                     section_start = max(0.0, float(clip['startSec']) - 2.0)
                     section_end = float(clip['endSec']) + 2.0
-                    sec_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i)
-                    adj_start = float(clip['startSec']) - section_start
-                    adj_end = float(clip['endSec']) - section_start
+                    use_start = section_start
+                    use_end = section_end
+                    sec_path = None
+                    try:
+                        sec_path = download_youtube_section(url, RAW_UPLOADS_DIR, section_start, section_end, i)
+                    except Exception as ytdlp_err:
+                        logger.warning(f"yt-dlp section download failed for clip {i}, trying RapidAPI fallback: {ytdlp_err}")
+                        if os.getenv("RAPIDAPI_KEY"):
+                            update_job(60 + int((i / max(1, len(clips))) * 20), f"Downloading source via fallback provider (clip {i + 1})...")
+                            sec_path = download_video_ingest(url, RAW_UPLOADS_DIR)
+                            use_start = float(clip['startSec'])
+                            use_end = float(clip['endSec'])
+                        else:
+                            raise
+
+                    adj_start = float(clip['startSec']) - use_start
+                    adj_end = float(clip['endSec']) - use_start
 
                     w_adjusted = []
                     for w in clip['captions']:
                         w_copy = w.copy()
-                        # Captions from the transcript-first pipeline are 0-based (relative to
-                        # clip start). The downloaded section starts at section_start, not at
-                        # clip.startSec, so we add adj_start (= startSec - section_start) to
-                        # make them absolute within the downloaded section — which is what
-                        # generate_ass_file's clip_start_sec offset expects.
                         offset_ms = int(adj_start * 1000)
                         w_copy["startMs"] = w["startMs"] + offset_ms
                         w_copy["endMs"] = w["endMs"] + offset_ms
@@ -1520,18 +1535,22 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                 return i, clip
             except Exception as e:
                 logger.error(f"Failed to transcode chunk {i}: {e}")
-                return i, None
+                return i, None, str(e)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=render_worker_count(len(clips))) as executor:
             futures = {executor.submit(process_clip, i, c): i for i, c in enumerate(clips)}
             for future in concurrent.futures.as_completed(futures):
-                idx, res_data = future.result()
+                idx, res_data, *err = future.result()
                 if res_data:
                     clips_out[idx] = res_data
+                else:
+                    errMsg = err[0] if err else "unknown error"
+                    clip_errors.append(f"Clip {idx + 1}: {errMsg}")
 
         clips_out = [c for c in clips_out if c is not None]
         if not clips_out:
-            raise Exception("No clips could be rendered into MP4 output.")
+            detail = "; ".join(clip_errors) if clip_errors else "all clips failed before transcoding"
+            raise Exception(f"No clips could be rendered into MP4 output. {detail}")
 
         if modal_volume:
             try:
