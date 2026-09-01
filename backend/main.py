@@ -843,14 +843,25 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
         smoothed = list(zip(ts, xs_smooth))
 
     expr_parts = []
-    for t_sec, norm_x in smoothed:
+    # Build true lerp segments between consecutive keyframes so the crop
+    # eases smoothly between positions instead of snapping (step function).
+    for i, (t_sec, norm_x) in enumerate(smoothed):
         target_x = f"min(max(0,in_w*{norm_x:.3f}-out_w/2),in_w-out_w)"
-        expr_parts.append(f"gte(t,{t_sec:.1f}),{target_x}")
+        if i + 1 < len(smoothed):
+            t_next, norm_next = smoothed[i + 1]
+            dur = t_next - t_sec
+            if dur > 0:
+                # lerp from current to next over the interval [t_sec, t_next]
+                x_next = f"min(max(0,in_w*{norm_next:.3f}-out_w/2),in_w-out_w)"
+                alpha = f"min(1,(t-{t_sec:.1f})/{dur:.1f})"
+                lerp_x = f"lerp({target_x},{x_next},{alpha})"
+                expr_parts.append((t_sec, lerp_x))
+                continue
+        expr_parts.append((t_sec, target_x))
 
     expr = "(in_w-out_w)/2"
-    for part in reversed(expr_parts):
-        cond, val = part.split(",", 1)
-        expr = f"if({cond},{val},{expr})"
+    for t_sec, val in reversed(expr_parts):
+        expr = f"if(gte(t,{t_sec:.1f}),{val},{expr})"
     return expr
 
 def upload_user_clip_to_supabase(local_path: str, user_id: str, access_token: str) -> Optional[str]:
@@ -1488,8 +1499,14 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                     w_adjusted = []
                     for w in clip['captions']:
                         w_copy = w.copy()
-                        w_copy["startMs"] = w["startMs"]
-                        w_copy["endMs"] = w["endMs"]
+                        # Captions from the transcript-first pipeline are 0-based (relative to
+                        # clip start). The downloaded section starts at section_start, not at
+                        # clip.startSec, so we add adj_start (= startSec - section_start) to
+                        # make them absolute within the downloaded section — which is what
+                        # generate_ass_file's clip_start_sec offset expects.
+                        offset_ms = int(adj_start * 1000)
+                        w_copy["startMs"] = w["startMs"] + offset_ms
+                        w_copy["endMs"] = w["endMs"] + offset_ms
                         w_adjusted.append(w_copy)
 
                     clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True, user_id=user_id, access_token=access_token)
