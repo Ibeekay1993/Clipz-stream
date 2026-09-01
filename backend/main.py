@@ -69,8 +69,8 @@ def worker_loop(directories, max_age, interval):
 
 @app.on_event("startup")
 async def startup_event():
-    # Run cleanup worker: keep files for 48 hours (172800s), check every hour (3600s)
-    threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 172800, 3600), daemon=True).start()
+    # Guest work remains on Modal volume for 24 hours; signed-in clips are copied to Supabase Storage.
+    threading.Thread(target=worker_loop, args=([CLIPS_DIR, RAW_UPLOADS_DIR], 86400, 3600), daemon=True).start()
     if not supabase:
         logger.warning("Supabase credentials not found. Clips will be served locally instead of CDN.")
 
@@ -81,14 +81,96 @@ class ProcessRequest(BaseModel):
     url: str
     num_clips: int = 3
     burn_captions: bool = True
+    user_id: Optional[str] = None
 
 class RenderRequest(BaseModel):
     url: str
     clips: List[dict]
+    user_id: Optional[str] = None
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
 
 class IngestionBlockedError(Exception):
     """Raised when YouTube refuses the download (bot check / login wall / geo-block)."""
     pass
+
+def supabase_auth_url(path: str) -> str:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(503, "Supabase is not configured on this server.")
+    return f"{SUPABASE_URL.rstrip('/')}/auth/v1/{path.lstrip('/')}"
+
+def compact_auth_response(payload: dict) -> dict:
+    user = payload.get("user") or {}
+    session = payload.get("session") or payload
+    return {
+        "user_id": user.get("id"),
+        "email": user.get("email"),
+        "access_token": session.get("access_token"),
+        "refresh_token": session.get("refresh_token"),
+        "expires_at": session.get("expires_at"),
+        "message": "Check your email to confirm your account." if user and not session.get("access_token") else "Authenticated.",
+    }
+
+def get_bearer_token(request: Request) -> Optional[str]:
+    auth = request.headers.get("authorization") if request else ""
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+    return None
+
+def verify_request_user(request: Request, claimed_user_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    token = get_bearer_token(request)
+    if not token:
+        return None, None
+    try:
+        res = requests.get(
+            supabase_auth_url("user"),
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+        if res.status_code >= 400:
+            raise HTTPException(401, "Invalid or expired login session.")
+        user = res.json()
+        user_id = user.get("id")
+        if claimed_user_id and user_id and claimed_user_id != user_id:
+            raise HTTPException(403, "Authenticated user does not match request user_id.")
+        return user_id, token
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Supabase token verification failed: {e}")
+        raise HTTPException(401, "Could not verify login session.")
+
+@app.post("/api/auth/signup")
+async def auth_signup(body: AuthRequest):
+    email = body.email.strip().lower()
+    if not email or len(body.password) < 8:
+        raise HTTPException(400, "Email and an 8+ character password are required.")
+    res = requests.post(
+        supabase_auth_url("signup"),
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+        json={"email": email, "password": body.password},
+        timeout=30,
+    )
+    if res.status_code >= 400:
+        raise HTTPException(res.status_code, res.text)
+    return compact_auth_response(res.json())
+
+@app.post("/api/auth/login")
+async def auth_login(body: AuthRequest):
+    email = body.email.strip().lower()
+    if not email or not body.password:
+        raise HTTPException(400, "Email and password are required.")
+    res = requests.post(
+        supabase_auth_url("token?grant_type=password"),
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+        json={"email": email, "password": body.password},
+        timeout=30,
+    )
+    if res.status_code >= 400:
+        raise HTTPException(res.status_code, res.text)
+    return compact_auth_response(res.json())
 
 
 DEFAULT_YOUTUBE_COOKIES = """# Netscape HTTP Cookie File
@@ -546,23 +628,38 @@ def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: i
         logger.warning(f"Requested {n} clips but only {len(chosen)} non-overlapping clips could be selected.")
     return chosen
 
-def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str):
+def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: str, clip_end_sec: float = None):
     """Generates an ASS subtitle file with OpusClip/Vizard clean typography and neon green active word highlighting"""
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: 720
+PlayResY: 1280
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,42,&H00FFFFFF,&H0000FF00,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,50,50,140,1
+Style: Default,Arial,52,&H00FFFFFF,&H0000FF00,&H00000000,&HAA000000,-1,0,0,0,100,100,1.5,0,1,3,1,2,40,40,120,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines_events = []
-    clip_words = [w for w in words if (w.get("startMs", 0)/1000.0) >= clip_start_sec - 0.5]
+    clip_end_sec = clip_end_sec if clip_end_sec is not None else float("inf")
+    clip_words = []
+    seen = set()
+    for w in words or []:
+        raw_word = str(w.get("word", "")).strip()
+        if not raw_word:
+            continue
+        start_s = max(0.0, (float(w.get("startMs", 0)) / 1000.0) - 0.08)
+        end_s = max(start_s + 0.18, (float(w.get("endMs", 0)) / 1000.0) + 0.12)
+        if end_s < clip_start_sec or start_s > clip_end_sec:
+            continue
+        dedupe_key = (raw_word.lower(), round(start_s, 1), round(end_s, 1))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        clip_words.append({"word": raw_word, "startMs": int(start_s * 1000), "endMs": int(end_s * 1000)})
 
     def format_time(sec):
         sec = max(0.0, sec)
@@ -588,7 +685,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         for idx, active_w in enumerate(group):
             w_start = max(0.0, (active_w["startMs"] / 1000.0) - clip_start_sec)
-            w_end = max(w_start + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec)
+            w_end = min(max(w_start + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec), max(w_start + 0.25, clip_end_sec - clip_start_sec))
 
             formatted_words = []
             for j, w in enumerate(group):
@@ -605,6 +702,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_str = format_time(w_end)
             event_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{line_text}"
             lines_events.append(event_line)
+
+    if not lines_events:
+        raise Exception("No caption words overlap this clip window")
 
     with open(ass_out_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(lines_events))
@@ -669,6 +769,11 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
                 center_x_norm = (x + w / 2.0) / width
                 tracked_x = center_x_norm
                 points.append((t_rel, center_x_norm))
+            elif tracked_x is not None:
+                # No face detected — hold last-known-good position instead of snapping to center.
+                # This prevents jarring jumps during side-profile moments or brief occlusions.
+                points.append((t_rel, tracked_x))
+                logger.debug(f"Face lost at t={t_rel:.1f}s; holding last position {tracked_x:.3f}")
             prev_gray = gray
             current_frame += frame_step
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
@@ -679,7 +784,7 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
         return []
 
 def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
-    """Build dynamic FFmpeg linear interpolation crop x expression from face points"""
+    """Build dynamic FFmpeg linear interpolation crop x expression from face points, with smoothing."""
     if not points: return "(in_w-out_w)/2"
     smoothed = []
     curr_bin = None
@@ -697,6 +802,16 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
         smoothed.append((curr_bin, sum(bin_vals) / len(bin_vals)))
     if not smoothed: return "(in_w-out_w)/2"
 
+    # Apply a 3-point moving average to prevent crop jitter / whip-panning.
+    if len(smoothed) >= 3:
+        ts = [s[0] for s in smoothed]
+        xs = [s[1] for s in smoothed]
+        xs_smooth = [xs[0]] + [
+            (xs[i-1] + xs[i] + xs[i+1]) / 3.0
+            for i in range(1, len(xs) - 1)
+        ] + [xs[-1]]
+        smoothed = list(zip(ts, xs_smooth))
+
     expr_parts = []
     for t_sec, norm_x in smoothed:
         target_x = f"min(max(0,in_w*{norm_x:.3f}-out_w/2),in_w-out_w)"
@@ -708,7 +823,33 @@ def build_dynamic_crop_x_expr(points: List[Tuple[float, float]]) -> str:
         expr = f"if({cond},{val},{expr})"
     return expr
 
-def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None, burn_captions: bool = False) -> str:
+def upload_user_clip_to_supabase(local_path: str, user_id: str, access_token: str) -> Optional[str]:
+    if not (SUPABASE_URL and SUPABASE_KEY and user_id and access_token):
+        return None
+    object_path = f"{user_id}/{os.path.basename(local_path)}"
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/clips/{object_path}"
+    try:
+        with open(local_path, "rb") as f:
+            res = requests.post(
+                url,
+                headers={
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "video/mp4",
+                    "x-upsert": "true",
+                },
+                data=f,
+                timeout=120,
+            )
+        if res.status_code >= 400:
+            logger.warning(f"Supabase user clip upload failed ({res.status_code}): {res.text[:300]}")
+            return None
+        return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/clips/{object_path}"
+    except Exception as e:
+        logger.warning(f"Supabase user clip upload error: {e}")
+        return None
+
+def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None, burn_captions: bool = False, user_id: str = None, access_token: str = None) -> str:
     """Safe FFmpeg crop + OpenCV Face-Tracking + ASS Kinetic Subtitles + Supabase CDN Upload"""
     dur = end - start
 
@@ -722,7 +863,7 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     use_subtitles = False
     if words and burn_captions:
         try:
-            generate_ass_file(words, start, ass_path)
+            generate_ass_file(words, start, ass_path, end)
             use_subtitles = os.path.exists(ass_path)
         except Exception as e:
             logger.warning(f"ASS subtitle generation failed: {e}")
@@ -762,17 +903,13 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
         try: os.remove(ass_path)
         except: pass
 
-    # Prefer Supabase Storage, but keep the locally generated Modal clip usable.
+    # Anonymous work stays on Modal's expiring volume. Signed-in work is copied to Supabase Storage.
     fname = os.path.basename(out)
-    if supabase:
-        try:
-            with open(out, 'rb') as f:
-                res = supabase.storage.from_("clips").upload(path=fname, file=f, file_options={"content-type": "video/mp4", "upsert": "true"})
-                logger.info(f"Supabase upload response: {res}")
-            public_url = supabase.storage.from_("clips").get_public_url(fname)
+    if user_id and access_token:
+        public_url = upload_user_clip_to_supabase(out, user_id, access_token)
+        if public_url:
             return public_url
-        except Exception as e:
-            logger.warning(f"Supabase clip upload failed; serving Modal clip locally: {e}")
+        logger.warning("Signed-in clip could not be copied to Supabase Storage; serving Modal fallback URL.")
 
     if modal_volume:
         try:
@@ -941,6 +1078,7 @@ def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
 
 # Persistent Job Tracking
 JOBS = {}
+JOB_TOKENS = {}
 modal_background_job_fn = None
 modal_volume = None
 
@@ -975,8 +1113,30 @@ def _load_jobs_from_disk():
         except Exception as e:
             logger.warning(f"Could not load jobs from disk: {e}")
 
-def push_job_update(job_id: str, progress: int, current_step: str, status: str = None, result: dict = None, error: str = None):
+def persist_job_to_supabase(data: dict, access_token: str) -> None:
+    if not (SUPABASE_URL and SUPABASE_KEY and access_token):
+        return
+    res = requests.post(
+        f"{SUPABASE_URL.rstrip('/')}/rest/v1/jobs",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+        },
+        json=data,
+        timeout=30,
+    )
+    if res.status_code >= 400:
+        raise Exception(f"{res.status_code}: {res.text[:300]}")
+
+def push_job_update(job_id: str, progress: int, current_step: str, status: str = None, result: dict = None, error: str = None, user_id: str = None, access_token: str = None):
     _load_jobs_from_disk()
+    existing_user_id = JOBS.get(job_id, {}).get("user_id") if job_id else None
+    effective_user_id = user_id or existing_user_id
+    if job_id and access_token:
+        JOB_TOKENS[job_id] = access_token
+    effective_token = access_token or JOB_TOKENS.get(job_id)
     data = {
         "job_id": job_id,
         "progress": progress,
@@ -985,6 +1145,13 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
     if status: data["status"] = status
     if result: data["result"] = result
     if error: data["error"] = error
+    if effective_user_id:
+        data["user_id"] = effective_user_id
+        data["retention_policy"] = "account_saved"
+        data["expires_at"] = None
+    else:
+        data["retention_policy"] = "anonymous_24h"
+        data["expires_at"] = int(time.time() + 86400)
 
     if job_id:
         if job_id not in JOBS:
@@ -992,16 +1159,16 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
         JOBS[job_id].update(data)
         _save_jobs_to_disk()
 
-    if supabase and job_id:
+    if effective_user_id and effective_token and job_id:
         try:
-            supabase.table("jobs").upsert(data).execute()
+            persist_job_to_supabase(data, effective_token)
         except Exception as e:
             logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
 
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None, burn_captions: bool = True) -> dict:
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None, burn_captions: bool = True, user_id: str = None, access_token: str = None) -> dict:
     def update_job(prog: int, step: str):
         if job_id:
-            push_job_update(job_id, prog, step)
+            push_job_update(job_id, prog, step, user_id=user_id, access_token=access_token)
 
     update_job(10, "Extracting audio & speech transcription...")
     logger.info("Starting Multi-AI Engine transcript analysis...")
@@ -1022,8 +1189,12 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                         s_ms = int(item.get('start', 0) * 1000)
                         d_ms = int(item.get('duration', 2.0) * 1000)
                         text_val = item.get('text', '')
-                        for w in text_val.split():
-                            words.append({"word": w, "startMs": s_ms, "endMs": s_ms + d_ms})
+                        yt_words = [w for w in text_val.split() if w.strip()]
+                        per_word = max(120, d_ms // max(1, len(yt_words)))
+                        for idx, w in enumerate(yt_words):
+                            w_start = s_ms + (idx * per_word)
+                            w_end = min(s_ms + d_ms, w_start + per_word)
+                            words.append({"word": w, "startMs": w_start, "endMs": max(w_start + 80, w_end)})
         except Exception as yte:
             logger.warning(f"YouTubeTranscriptApi fast-track note: {yte}")
 
@@ -1078,7 +1249,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
         fname = f"clip_{uuid.uuid4().hex[:8]}_{i}.mp4"
         fpath = os.path.join(CLIPS_DIR, fname)
         try:
-            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words, burn_captions=burn_captions)
+            clip_url = transcode_and_upload(vpath, chunk.start, chunk.end, fpath, words=chunk.words, burn_captions=burn_captions, user_id=user_id, access_token=access_token)
             if clip_url.startswith("/clips/"):
                 clip_url = f"{base}{clip_url}"
 
@@ -1126,11 +1297,11 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     update_job(100, "Complete")
     return result
 
-async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job_id: str = None) -> dict:
+async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job_id: str = None, user_id: str = None, access_token: str = None) -> dict:
     """Fast path for captioned YouTube videos: score captions first, then download only selected windows."""
     def update_job(prog: int, step: str):
         if job_id:
-            push_job_update(job_id, prog, step)
+            push_job_update(job_id, prog, step, user_id=user_id, access_token=access_token)
 
     update_job(8, "Fetching YouTube captions before downloading media...")
     words = fetch_youtube_transcript_words(url)
@@ -1225,40 +1396,40 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     return {"url": url, "duration": words[-1]["endMs"] / 1000.0 if words else 0, "clips": clips_out, "status": "needs_review"}
 
 
-def execute_url_job_bg(job_id: str, url: str, n: int, base: str):
+def execute_url_job_bg(job_id: str, url: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
     try:
         if is_youtube_url(url):
             try:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                res = loop.run_until_complete(run_youtube_transcript_first_pipeline(url, n, base, job_id))
-                push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
+                res = loop.run_until_complete(run_youtube_transcript_first_pipeline(url, n, base, job_id, user_id=user_id, access_token=access_token))
+                push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res, user_id=user_id, access_token=access_token)
                 return
             except Exception as fast_err:
                 logger.warning(f"Transcript-first YouTube pipeline failed; trying bounded section fallback: {fast_err}")
-                push_job_update(job_id, progress=6, current_step="YouTube captions are blocked; trying a short media section instead...")
+                push_job_update(job_id, progress=6, current_step="YouTube captions are blocked; trying a short media section instead...", user_id=user_id, access_token=access_token)
 
             try:
                 section_path = download_youtube_section(url, RAW_UPLOADS_DIR, 0.0, 90.0, 0, job_id)
-                execute_job_bg(job_id, section_path, url, n, base)
+                execute_job_bg(job_id, section_path, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
                 return
             except Exception as section_err:
                 logger.warning(f"Bounded YouTube section fallback failed: {section_err}")
                 if os.getenv("RAPIDAPI_KEY"):
-                    push_job_update(job_id, progress=8, current_step="Using configured YouTube ingestion provider...")
+                    push_job_update(job_id, progress=8, current_step="Using configured YouTube ingestion provider...", user_id=user_id, access_token=access_token)
                     vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
-                    execute_job_bg(job_id, vpath, url, n, base)
+                    execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
                     return
                 raise Exception("YouTube link import is not configured for this cloud server. Upload the video file directly to generate clips reliably.")
 
         vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
-        execute_job_bg(job_id, vpath, url, n, base)
+        execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
     except Exception as e:
         logger.error(f"URL job {job_id} failed: {e}")
-        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e), user_id=user_id, access_token=access_token)
 
-def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
+def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, user_id: str = None, access_token: str = None):
     try:
         import asyncio
         loop = asyncio.new_event_loop()
@@ -1268,7 +1439,7 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
         vpath = url if is_yt else url
 
         def update_job(prog: int, step: str):
-            push_job_update(job_id, prog, step)
+            push_job_update(job_id, prog, step, user_id=user_id, access_token=access_token)
 
         update_job(60, "FFmpeg 1080p HD Safe Crop & Subtitle Transcoding...")
         clips_out = [None] * len(clips)
@@ -1291,9 +1462,9 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                         w_copy["endMs"] = w["endMs"]
                         w_adjusted.append(w_copy)
 
-                    clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True)
+                    clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True, user_id=user_id, access_token=access_token)
                 else:
-                    clip_url = transcode_and_upload(vpath, float(clip['startSec']), float(clip['endSec']), fpath, words=clip['captions'], burn_captions=True)
+                    clip_url = transcode_and_upload(vpath, float(clip['startSec']), float(clip['endSec']), fpath, words=clip['captions'], burn_captions=True, user_id=user_id, access_token=access_token)
 
                 if clip_url.startswith("/clips/"):
                     clip_url = f"{base}{clip_url}"
@@ -1323,29 +1494,30 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str):
                 logger.warning(f"Modal volume commit note in render job: {ve}")
 
         res = {"url": url, "duration": 0, "clips": clips_out, "status": "completed"}
-        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
+        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res, user_id=user_id, access_token=access_token)
     except Exception as e:
         logger.error(f"Render job {job_id} failed: {e}")
-        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e), user_id=user_id, access_token=access_token)
 
-def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str):
+def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
     try:
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id))
-        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res)
+        res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id, burn_captions=burn_captions, user_id=user_id, access_token=access_token))
+        push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res, user_id=user_id, access_token=access_token)
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
-        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e))
+        push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e), user_id=user_id, access_token=access_token)
 
 @app.post("/api/process")
 async def process_video_api(body: ProcessRequest, request: Request):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/")
+    user_id, access_token = verify_request_user(request, body.user_id)
     try:
         vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
-        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, burn_captions=body.burn_captions)
+        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, burn_captions=body.burn_captions, user_id=user_id, access_token=access_token)
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
@@ -1358,16 +1530,18 @@ run_background_render_job_modal = None
 async def create_render_job_api(body: RenderRequest, background_tasks: BackgroundTasks, request: Request = None):
     if not body.clips: raise HTTPException(400, "Clips cannot be empty")
     base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
+    user_id, access_token = verify_request_user(request, body.user_id)
     job_id = uuid.uuid4().hex[:12]
 
     push_job_update(
         job_id=job_id,
         progress=50,
         current_step="Applying your edits and rendering 1080p clips...",
-        status="processing"
+        status="processing",
+        user_id=user_id
     )
 
-    background_tasks.add_task(execute_render_job_bg, job_id, body.url, body.clips, base)
+    background_tasks.add_task(execute_render_job_bg, job_id, body.url, body.clips, base, user_id, access_token)
     logger.info(f"Queued render background task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
@@ -1376,18 +1550,20 @@ async def create_render_job_api(body: RenderRequest, background_tasks: Backgroun
 async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks, request: Request = None):
     if not body.url.strip(): raise HTTPException(400, "URL cannot be empty")
     base = str(request.base_url).rstrip("/") if request else "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
+    user_id, access_token = verify_request_user(request, body.user_id)
     job_id = uuid.uuid4().hex[:12]
 
     push_job_update(
         job_id=job_id,
         progress=2,
         current_step="Ingesting video & validating media streams...",
-        status="processing"
+        status="processing",
+        user_id=user_id
     )
 
     num_c = max(1, min(body.num_clips, 8))
 
-    background_tasks.add_task(execute_url_job_bg, job_id, body.url.strip(), num_c, base)
+    background_tasks.add_task(execute_url_job_bg, job_id, body.url.strip(), num_c, base, user_id, access_token, body.burn_captions)
     logger.info(f"Queued URL background task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
@@ -1409,8 +1585,9 @@ async def get_job_status(job_id: str):
     raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3)):
+async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3), user_id: Optional[str] = Form(None), burn_captions: bool = Form(True)):
     base = str(request.base_url).rstrip("/")
+    verified_user_id, access_token = verify_request_user(request, user_id)
     ext = os.path.splitext(file.filename)[1] or ".mp4"
     job_id = uuid.uuid4().hex[:12]
     vpath = os.path.join(RAW_UPLOADS_DIR, f"uploaded_{job_id}{ext}")
@@ -1422,12 +1599,13 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
             job_id=job_id,
             progress=5,
             current_step="File uploaded successfully. Preparing AI pipeline...",
-            status="processing"
+            status="processing",
+            user_id=verified_user_id
         )
 
         num_c = max(1, min(num_clips, 8))
 
-        background_tasks.add_task(execute_job_bg, job_id, vpath, file.filename, num_c, base)
+        background_tasks.add_task(execute_job_bg, job_id, vpath, file.filename, num_c, base, verified_user_id, access_token, burn_captions)
         logger.info(f"Queued uploaded file background task for job {job_id}")
 
         return {"job_id": job_id, "status": "processing"}
@@ -1474,7 +1652,7 @@ try:
     import modal
     image = (
         modal.Image.debian_slim(python_version="3.11")
-        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless", "youtube-transcript-api")
+        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless", "youtube-transcript-api", "edge-tts")
         .apt_install("ffmpeg")
     )
     modal_app = modal.App("clipz-stream")
@@ -1494,8 +1672,8 @@ try:
         secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
-    def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str):
-        execute_url_job_bg(job_id, url, num_clips, base_url)
+    def run_background_job_modal(job_id: str, url: str, num_clips: int, base_url: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
+        execute_url_job_bg(job_id, url, num_clips, base_url, user_id, access_token, burn_captions)
 
     @modal_app.function(
         image=image,
@@ -1504,8 +1682,8 @@ try:
         secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
-    def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str):
-        execute_job_bg(job_id, vpath, filename, num_clips, base_url)
+    def run_background_upload_job_modal(job_id: str, vpath: str, filename: str, num_clips: int, base_url: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
+        execute_job_bg(job_id, vpath, filename, num_clips, base_url, user_id, access_token, burn_captions)
 
     @modal_app.function(
         image=image,
@@ -1514,8 +1692,8 @@ try:
         secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )
-    def run_background_render_job_modal(job_id: str, url: str, clips: list, base_url: str):
-        execute_render_job_bg(job_id, url, clips, base_url)
+    def run_background_render_job_modal(job_id: str, url: str, clips: list, base_url: str, user_id: str = None, access_token: str = None):
+        execute_render_job_bg(job_id, url, clips, base_url, user_id, access_token)
 
     @modal_app.function(
         image=image,

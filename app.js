@@ -3,8 +3,10 @@ const MODAL_BASE_URL = "https://ibeekay1993--clipz-stream-fastapi-app.modal.run"
 
 let selectedFile = null;
 let currentWizardStep = 1;
+let currentSession = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+    initializeAuth();
     loadBackendCapabilities();
     switchTab('file');
     startCountdown();
@@ -42,6 +44,45 @@ function startCountdown() {
 }
 
 // Auth Modal Logic
+async function initializeAuth() {
+    try {
+        currentSession = JSON.parse(localStorage.getItem('clipz_session') || 'null');
+    } catch (_err) {
+        currentSession = null;
+    }
+    updateAuthUi(currentSession);
+}
+
+function updateAuthUi(session) {
+    const banner = document.getElementById('top-countdown-banner');
+    const bannerText = document.querySelector('.countdown-text');
+    const bannerButton = document.querySelector('#top-countdown-banner button');
+    if (session) {
+        if (banner) {
+            banner.style.background = 'rgba(0, 255, 135, 0.08)';
+            banner.style.borderBottom = '1px solid rgba(0, 255, 135, 0.25)';
+        }
+        if (bannerText) bannerText.innerText = `Signed in as ${session.email}. New clips are saved to your account.`;
+        if (bannerButton) {
+            bannerButton.innerText = 'Sign out';
+            bannerButton.onclick = signOut;
+            bannerButton.style.background = '#1E293B';
+        }
+    } else {
+        if (banner) {
+            banner.style.display = 'flex';
+            banner.style.background = 'rgba(255, 60, 60, 0.1)';
+            banner.style.borderBottom = '1px solid rgba(255, 60, 60, 0.2)';
+        }
+        if (bannerText) bannerText.innerText = 'Guest projects expire after 24 hours. Sign up to save clips to your account.';
+        if (bannerButton) {
+            bannerButton.innerText = 'Sign up';
+            bannerButton.onclick = openAuthModal;
+            bannerButton.style.background = '#FF4A4A';
+        }
+    }
+}
+
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');
     if (modal) modal.style.display = 'flex';
@@ -58,11 +99,72 @@ function closeAuthModalForce() {
     if (modal) modal.style.display = 'none';
 }
 
-function mockAuthLogin() {
-    alert("Thanks for signing up. Your clips will now be saved to your workspace.");
-    closeAuthModalForce();
-    const banner = document.getElementById('top-countdown-banner');
-    if (banner) banner.style.display = 'none';
+function showAuthMessage(message, isError = false) {
+    const el = document.getElementById('auth-message');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.color = isError ? '#FF4A4A' : '#94A3B8';
+    el.innerText = message;
+}
+
+async function submitAuthForm() {
+    const email = document.getElementById('auth-email')?.value.trim();
+    const password = document.getElementById('auth-password')?.value;
+    const button = document.getElementById('auth-submit-btn');
+    if (!email || !password || password.length < 8) {
+        showAuthMessage('Enter an email and a password with at least 8 characters.', true);
+        return;
+    }
+
+    if (button) button.disabled = true;
+    showAuthMessage('Checking your account...');
+    try {
+        let response = await fetch(`${MODAL_BASE_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!response.ok) {
+            response = await fetch(`${MODAL_BASE_URL}/api/auth/signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+        }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || data.message || 'Authentication failed.');
+        if (!data.access_token) {
+            showAuthMessage(data.message || 'Check your email to confirm your account.');
+            return;
+        }
+        currentSession = data;
+        localStorage.setItem('clipz_session', JSON.stringify(currentSession));
+        updateAuthUi(currentSession);
+        showAuthMessage('Signed in. Future clips will be saved.');
+        setTimeout(closeAuthModalForce, 600);
+    } catch (err) {
+        showAuthMessage(err.message || 'Sign up/login failed.', true);
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+async function signInWithGoogle() {
+    showAuthMessage('Google sign-in needs OAuth provider setup in Supabase. Email/password sign up is ready now.', true);
+}
+
+async function signOut() {
+    currentSession = null;
+    localStorage.removeItem('clipz_session');
+    updateAuthUi(null);
+}
+
+function getAuthHeaders() {
+    return currentSession?.access_token ? { Authorization: `Bearer ${currentSession.access_token}` } : {};
+}
+
+function getCurrentUserId() {
+    return currentSession?.user_id || null;
 }
 
 async function loadBackendCapabilities() {
@@ -369,8 +471,8 @@ async function handleYoutubeSubmit(event) {
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url, num_clips: numClips, burn_captions: burnCaptionsEnabled })
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ url: url, num_clips: numClips, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
         });
 
         if (!response.ok) {
@@ -413,9 +515,12 @@ async function handleFileUploadSubmit() {
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("num_clips", numClips);
+        formData.append("burn_captions", burnCaptionsEnabled ? "true" : "false");
+        if (getCurrentUserId()) formData.append("user_id", getCurrentUserId());
 
         const response = await fetch(`${MODAL_BASE_URL}/api/upload`, {
             method: 'POST',
+            headers: getAuthHeaders(),
             body: formData
         });
 
@@ -453,7 +558,8 @@ function resetApp() {
     resultsSection.style.transition = 'opacity 0.3s ease';
 
     setTimeout(() => {
-        document.getElementById('url-input').value = '';
+        const ytInput = document.getElementById('yt-url-input');
+        if (ytInput) ytInput.value = '';
         selectedFile = null;
         document.getElementById('dropzone-title').innerText = "Drag & Drop video file here";
         document.getElementById('dropzone-subtitle').innerText = "Supports MP4, MKV, or WEBM up to 100MB";
@@ -476,7 +582,9 @@ function pollJobStatus(jobId) {
 
     pollingInterval = setInterval(async () => {
         try {
-            const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`);
+            const response = await fetch(`${MODAL_BASE_URL}/api/jobs/status/${jobId}`, {
+                headers: getAuthHeaders()
+            });
 
             if (response.status === 404) {
                 clearInterval(pollingInterval);
@@ -584,8 +692,8 @@ async function submitRenderJob() {
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips })
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips, user_id: getCurrentUserId() })
         });
 
         if (!response.ok) {

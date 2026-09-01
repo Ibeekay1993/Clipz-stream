@@ -1468,6 +1468,174 @@ body {
     margin-top: 14px;
 }
 
+@media (max-width: 768px) {
+    html,
+    body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    .top-countdown-banner {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: 10px 12px !important;
+        text-align: center !important;
+    }
+
+    .top-countdown-banner .btn-primary {
+        width: 100% !important;
+        min-height: 42px !important;
+    }
+
+    .hero-section {
+        padding: 24px 12px 88px !important;
+    }
+
+    .hero-container {
+        gap: 20px !important;
+    }
+
+    .tab-buttons {
+        width: 100%;
+    }
+
+    .tab-btn {
+        min-height: 44px;
+        padding: 10px 8px;
+        font-size: 0.84rem;
+    }
+
+    .dropzone {
+        min-height: 220px;
+        padding: 20px 14px;
+    }
+
+    .dropzone-title,
+    #dropzone-title,
+    #dropzone-subtitle,
+    .video-preview-title {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .wizard-actions-bar {
+        width: 100%;
+    }
+
+    .clips-count-selector {
+        width: 100% !important;
+        justify-content: space-between !important;
+        min-height: 48px !important;
+    }
+
+    .clips-count-selector .select-input,
+    #clips-count {
+        width: min(100%, 180px) !important;
+        min-width: 0 !important;
+    }
+
+    .progress-header,
+    .results-header,
+    .error-card {
+        align-items: flex-start !important;
+        flex-wrap: wrap !important;
+    }
+
+    .progress-percentage,
+    #progress-pct {
+        margin-left: auto;
+    }
+
+    .vizard-levels-list {
+        gap: 8px;
+    }
+
+    .vizard-level-item {
+        font-size: 0.82rem;
+        line-height: 1.35;
+    }
+
+    .results-header > div {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .results-header .btn-primary {
+        margin-left: 0 !important;
+    }
+
+    .clip-actions {
+        flex-direction: column;
+    }
+
+    .modal-overlay {
+        padding: 12px !important;
+        align-items: flex-start !important;
+        overflow-y: auto !important;
+    }
+
+    .modal-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+    }
+
+    #video-modal .modal-card {
+        flex-direction: column !important;
+        gap: 12px !important;
+        padding: 14px !important;
+    }
+
+    #modal-video-player {
+        width: 100% !important;
+        max-height: 58vh !important;
+    }
+
+    .vizard-modal-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 420px) {
+    .nav-container {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+
+    .logo-text {
+        font-size: 1.1rem !important;
+    }
+
+    .hero-title {
+        font-size: 1.45rem !important;
+    }
+
+    .wizard-stepper {
+        justify-content: space-between !important;
+    }
+
+    .step-label {
+        max-width: 70px;
+        text-align: center;
+    }
+
+    .clipper-card {
+        padding: 12px !important;
+    }
+
+    .clips-count-selector {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    .clips-count-selector .select-input,
+    #clips-count {
+        width: 100% !important;
+    }
+}
+
 .vizard-action-btn {
     display: flex;
     flex-direction: column;

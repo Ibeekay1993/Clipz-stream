@@ -21,7 +21,7 @@
             <span id="cd-h">23</span><span style="font-size: 0.8rem; font-weight: 500;">h</span> : <span id="cd-m">57</span><span style="font-size: 0.8rem; font-weight: 500;">m</span> : <span id="cd-s">00</span><span style="font-size: 0.8rem; font-weight: 500;">s</span>
         </div>
         <div class="countdown-text" style="color: #E2E8F0; font-size: 0.95rem;">
-            Project will be archived in 24 hours. Sign up now to save your project.
+            Guest projects expire after 24 hours. Sign up to save clips to your account.
         </div>
         <button class="btn-primary" onclick="openAuthModal()" style="padding: 6px 16px; font-size: 0.85rem; border-radius: 6px; background: #FF4A4A; color: white; border: none; box-shadow: 0 4px 10px rgba(255, 74, 74, 0.3);">Sign up</button>
     </div>
@@ -160,9 +160,7 @@
                                 <option value="2">2 Clips</option>
                                 <option value="3" selected>3 Clips</option>
                                 <option value="5">5 Clips</option>
-                                <option value="10">10 Clips</option>
-                                <option value="15">15 Clips</option>
-                                <option value="20">20 Clips</option>
+                                <option value="8">8 Clips</option>
                             </select>
                         </div>
 
@@ -343,10 +341,10 @@
 
             <div style="text-align: center; margin-bottom: 24px;">
                 <h2 style="color: #FFF; font-size: 1.5rem; margin-bottom: 8px;">Create an account</h2>
-                <p style="color: #888; font-size: 0.9rem;">Save your clips and access them forever.</p>
+                <p style="color: #888; font-size: 0.9rem;">Guest work expires after 24 hours. Sign in to save clips to your account.</p>
             </div>
 
-            <button class="btn-secondary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 24px; background: #1E293B; border: 1px solid rgba(255,255,255,0.1); color: #FFF; transition: all 0.2s; cursor: pointer;">
+            <button class="btn-secondary" onclick="signInWithGoogle()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 24px; background: #1E293B; border: 1px solid rgba(255,255,255,0.1); color: #FFF; transition: all 0.2s; cursor: pointer;">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" style="width: 18px; height: 18px;">
                 Continue with Google
             </button>
@@ -360,20 +358,22 @@
             <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
                 <div>
                     <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Work Email</label>
-                    <input type="email" placeholder="name@company.com" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                    <input type="email" id="auth-email" placeholder="name@company.com" class="form-input" autocomplete="email" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
                 </div>
                 <div>
                     <label style="display: block; font-size: 0.85rem; color: #888; margin-bottom: 6px;">Password</label>
-                    <input type="password" placeholder="••••••••" class="form-input" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
+                    <input type="password" id="auth-password" placeholder="8+ characters" class="form-input" autocomplete="current-password" style="width: 100%; box-sizing: border-box; background: #11141A; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; color: #FFF;">
                 </div>
             </div>
 
-            <button class="btn-primary" onclick="mockAuthLogin()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px rgba(0, 255, 170, 0.2);">
-                Sign Up
+            <p id="auth-message" style="display: none; color: #94A3B8; font-size: 0.82rem; line-height: 1.4; margin-bottom: 14px;"></p>
+
+            <button class="btn-primary" id="auth-submit-btn" onclick="submitAuthForm()" style="width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px rgba(0, 255, 170, 0.2);">
+                Sign Up / Log In
             </button>
 
             <p style="text-align: center; color: #888; font-size: 0.8rem; margin-top: 24px;">
-                Already have an account? <a href="#" style="color: var(--primary-neon); text-decoration: none;">Log in</a>
+                Use the same email/password to log in on return visits.
             </p>
         </div>
     </div>
@@ -436,5 +436,3 @@
     <script src="app.js"></script>
 </body>
 </html>
-
-
