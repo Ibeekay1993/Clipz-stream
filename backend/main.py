@@ -114,7 +114,7 @@ def compact_auth_response(payload: dict) -> dict:
     }
 
 def get_bearer_token(request: Request) -> Optional[str]:
-    auth = request.headers.get("authorization") if request else ""
+    auth = request.headers.get("authorization", "") if request else ""
     if auth.lower().startswith("bearer "):
         return auth.split(" ", 1)[1].strip()
     return None
