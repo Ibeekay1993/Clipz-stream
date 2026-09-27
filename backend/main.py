@@ -242,6 +242,30 @@ class IngestionBlockedError(Exception):
 def download_video_ingest(url: str, out_dir: str, job_id: str = None) -> str:
     out_file = os.path.join(out_dir, f"video_{uuid.uuid4().hex[:8]}.mp4")
 
+    # 1. If it's Twitch, Kick, or other streaming platforms, use yt-dlp's native platform extractors
+    if not is_youtube_url(url):
+        if job_id: push_job_update(job_id, progress=10, current_step="Ingesting stream from Twitch/Kick/Web platform...")
+        logger.info(f"Using yt-dlp multi-platform downloader for non-YouTube URL: {url}")
+        ydl_opts = {
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "merge_output_format": "mp4",
+            "final_ext": "mp4",
+            "outtmpl": out_file,
+            "quiet": True,
+            "no_warnings": True,
+            "retries": 3,
+            "socket_timeout": 30,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            if os.path.exists(out_file) and os.path.getsize(out_file) > 100_000:
+                if job_id: push_job_update(job_id, progress=20, current_step="Stream ingestion completed successfully.")
+                return out_file
+        except Exception as ye:
+            logger.warning(f"yt-dlp multi-platform ingest failed: {ye}")
+            raise Exception(f"Could not ingest stream from {url}: {ye}. Please use 'Upload Video File' instead.")
+
     vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
     if not vid_match:
         raise Exception("Could not parse YouTube video ID from URL")
