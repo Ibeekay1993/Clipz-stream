@@ -474,12 +474,13 @@ async function handleYoutubeSubmit(event) {
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
     if (!url) return;
 
+    const clipDuration = document.getElementById('clip-duration') ? document.getElementById('clip-duration').value : 'auto';
     showProgress("Preparing your video...", 5);
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ url: url, num_clips: numClips, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
+            body: JSON.stringify({ url: url, num_clips: numClips, clip_duration: clipDuration, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
         });
         if (!response.ok) {
             const errText = await response.text();
@@ -511,12 +512,14 @@ async function handleFileUploadSubmit() {
     }
 
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
+    const clipDuration = document.getElementById('clip-duration') ? document.getElementById('clip-duration').value : 'auto';
     showProgress("Uploading video...", 10);
 
     try {
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("num_clips", numClips);
+        formData.append("clip_duration", clipDuration);
         formData.append("burn_captions", burnCaptionsEnabled ? "true" : "false");
         if (getCurrentUserId()) formData.append("user_id", getCurrentUserId());
 

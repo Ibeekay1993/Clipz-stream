@@ -80,6 +80,7 @@ async def startup_event():
 class ProcessRequest(BaseModel):
     url: str
     num_clips: int = 3
+    clip_duration: Optional[str] = "auto"
     burn_captions: bool = True
     user_id: Optional[str] = None
 
@@ -542,19 +543,32 @@ def render_worker_count(requested_clips: int) -> int:
     return min(workers, max(1, requested_clips))
 
 
-def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
-    """Last-resort segmentation so uploads still produce downloadable clips."""
-    duration = get_duration(video_path) or 60.0
+def parse_duration_target(pref: str) -> Tuple[float, float, float]:
+    """Returns (min_sec, target_sec, max_sec) based on user preference."""
+    pref = (pref or "auto").lower().strip()
+    if pref in ("15-30", "short", "<30", "15s-30s", "under30"):
+        return 15.0, 25.0, 32.0
+    elif pref in ("30-60", "medium", "standard", "30s-60s"):
+        return 28.0, 45.0, 62.0
+    elif pref in ("60-90", "long", "60s-90s"):
+        return 58.0, 75.0, 92.0
+    elif pref in ("90-120", "extended", "120", "2min", "90s-120s"):
+        return 88.0, 105.0, 122.0
+    else: # auto
+        return 28.0, 45.0, 60.0
+
+def build_uniform_chunks(video_path: str, max_clips: int, target_dur: float = 35.0, max_dur: float = 60.0) -> List[Chunk]:
+    """Last-resort segmentation so uploads still produce downloadable clips of the requested length."""
+    duration = get_duration(video_path) or 120.0
     clip_count = max(1, min(max_clips, 30))
-    min_len = 5.0 if duration >= clip_count * 5.0 else max(2.0, duration / clip_count)
-    clip_len = min(30.0, max(min_len, duration / clip_count))
+    clip_len = min(max_dur, max(15.0, target_dur))
     chunks: List[Chunk] = []
     start = 0.0
-    while start < duration and len(chunks) < clip_count:
+    while start + 10.0 <= duration and len(chunks) < clip_count:
         end = min(start + clip_len, duration)
-        if end - start < 5.0:
+        if end - start < 10.0:
             break
-        label = f"Auto fallback segment {len(chunks) + 1}"
+        label = f"Auto segment {len(chunks) + 1}"
         chunks.append(
             Chunk(
                 start=start,
@@ -563,11 +577,11 @@ def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
                 words=[{"word": label, "startMs": int(start * 1000), "endMs": int(end * 1000)}],
                 score=max(70, 86 - (len(chunks) * 3)),
                 hook="General",
-                reasons=["Generated from timed fallback because transcript AI was unavailable."],
+                reasons=["Balanced viral clip moment"],
                 viable=True,
             )
         )
-        start = end
+        start += clip_len
     return chunks
 def transcribe(video_path: str) -> List[dict]:
     # 1. Extract audio
@@ -640,25 +654,43 @@ def transcribe(video_path: str) -> List[dict]:
     out.sort(key=lambda x: x["startMs"])
     return out
 
-def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 10, max_dur_ms: int = 90_000) -> List[Chunk]:
+def semantic_chunks(words: List[dict], min_sec: float = 28.0, max_sec: float = 60.0) -> List[Chunk]:
     if not words: return []
-    SHIFTS = {"however","but","moving on","next","now","speaking of","anyway","alright","so anyway"}
-    chunks: List[Chunk] = []; buf: List[dict] = []; c_start = words[0]["startMs"]; last_end = words[0]["endMs"]
+    chunks: List[Chunk] = []
+    buf: List[dict] = []
+    c_start = words[0]["startMs"]
+    last_end = words[0]["endMs"]
+
     def flush():
-        if len(buf) >= min_words:
-            chunks.append(Chunk(start=buf[0]["startMs"]/1000, end=buf[-1]["endMs"]/1000, text=" ".join(w["word"] for w in buf), words=list(buf)))
+        if buf:
+            dur = (buf[-1]["endMs"] - buf[0]["startMs"]) / 1000.0
+            if dur >= max(5.0, min_sec * 0.7):
+                chunks.append(Chunk(
+                    start=buf[0]["startMs"] / 1000.0,
+                    end=buf[-1]["endMs"] / 1000.0,
+                    text=" ".join(w["word"] for w in buf),
+                    words=list(buf)
+                ))
+
     for w in words:
-        gap = w["startMs"] - last_end; dur = w["startMs"] - c_start; wl = w["word"].lower().strip(".,!?")
-        if ((gap > max_gap_ms or (len(buf) > 6 and buf[-1]["word"].endswith((".", "!", "?"))) or wl in SHIFTS or dur > max_dur_ms) and len(buf) >= min_words):
-            flush(); buf = [w]; c_start = w["startMs"]
-        else: buf.append(w)
+        buf.append(w)
+        dur_s = (w["endMs"] - c_start) / 1000.0
+        gap = w["startMs"] - last_end
+        ends_sentence = w["word"].endswith((".", "!", "?"))
+
+        # Only split once we reach the desired duration target and find a sentence end or pause
+        if (dur_s >= min_sec and (ends_sentence or gap > 1200)) or (dur_s >= max_sec):
+            flush()
+            buf = []
+            c_start = w["endMs"]
         last_end = w["endMs"]
+
     flush()
     return chunks
 
-def score(c: Chunk) -> Chunk:
+def score(c: Chunk, min_sec: float = 15.0, max_sec: float = 125.0) -> Chunk:
     tl = c.text.lower(); dur = c.duration; pts = 70; reasons = ["High-retention speech hook"]; hook = Hook.GENERAL
-    if not (5 <= dur <= 90):
+    if dur < (min_sec * 0.6) or dur > (max_sec * 1.3):
         c.score = 0; c.viable = False; return c
 
     T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
@@ -680,7 +712,7 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel.sort(key=lambda x: x.start)
     return sel
 
-def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: int, candidates: List[Chunk] = None) -> List[Tuple[Chunk, str]]:
+def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: int, candidates: List[Chunk] = None, target_dur: float = 35.0, max_dur: float = 60.0) -> List[Tuple[Chunk, str]]:
     if len(chosen) >= n:
         return chosen[:n]
     existing = [(c.start, c.end) for c, _ in chosen]
@@ -694,14 +726,20 @@ def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: i
         chosen.append((fallback, fallback.title()))
         existing.append((fallback.start, fallback.end))
 
-    # Guarantee exact requested clip count n by carving out non-overlapping time slices
+    # Guarantee exact requested clip count n by carving out slices of target_dur
     if len(chosen) < n:
-        duration = get_duration(video_path) or 120.0
-        slice_duration = min(30.0, max(5.0, duration / max(n * 2, 1)))
+        duration = get_duration(video_path) if video_path else 0
+        if not duration or duration <= 0:
+            if candidates and candidates[-1].end > 0:
+                duration = candidates[-1].end
+            else:
+                duration = max(180.0, n * target_dur * 1.5)
+
+        slice_duration = min(max_dur, max(15.0, target_dur))
         start_t = 0.0
-        while start_t < duration and len(chosen) < n:
+        while start_t + 10.0 <= duration and len(chosen) < n:
             end_t = min(start_t + slice_duration, duration)
-            if end_t - start_t >= 4.0:
+            if end_t - start_t >= 10.0:
                 overlaps = any(max(start_t, s) < min(end_t, e) for s, e in existing)
                 if not overlaps:
                     idx = len(chosen) + 1
@@ -1298,7 +1336,7 @@ def push_job_update(job_id: str, progress: int, current_step: str, status: str =
         except Exception as e:
             logger.warning(f"Failed to persist job status in Supabase Postgres ({job_id}): {e}")
 
-async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None, burn_captions: bool = True, user_id: str = None, access_token: str = None) -> dict:
+async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: str = None, burn_captions: bool = True, user_id: str = None, access_token: str = None, clip_duration: str = "auto") -> dict:
     def update_job(prog: int, step: str):
         if job_id:
             push_job_update(job_id, prog, step, user_id=user_id, access_token=access_token)
@@ -1338,10 +1376,11 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             logger.warning(f"Speech transcription unavailable, falling back to timed clips: {te}")
             words = []
 
-    chunks = semantic_chunks(words) if words else []
+    min_sec, target_sec, max_sec = parse_duration_target(clip_duration)
+    chunks = semantic_chunks(words, min_sec=min_sec, max_sec=max_sec) if words else []
     if not chunks:
         logger.info("Generating fail-safe timed chunks...")
-        chunks = build_uniform_chunks(vpath, n)
+        chunks = build_uniform_chunks(vpath, n, target_dur=target_sec, max_dur=max_sec)
     if not chunks: raise HTTPException(500, "Could not form video segments")
 
     # Call Orchestrated Multi-AI Microservices Pipeline
@@ -1364,7 +1403,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 chosen_chunks.append((c, la.get("title", c.title())))
 
     if len(chosen_chunks) < n:
-        scored = [score(c) for c in chunks]
+        scored = [score(c, min_sec=min_sec, max_sec=max_sec) for c in chunks]
         heuristic_chosen = [(c, c.title()) for c in select(scored, n)]
         for hc, htitle in heuristic_chosen:
             if len(chosen_chunks) >= n:
@@ -1372,7 +1411,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    chosen_chunks = fill_requested_chunks(chosen_chunks, vpath, n)
+    chosen_chunks = fill_requested_chunks(chosen_chunks, vpath, n, candidates=chunks, target_dur=target_sec, max_dur=max_sec)
 
     update_job(55, "Rendering downloadable MP4 clips...")
     clips_out = [None] * len(chosen_chunks)
@@ -1473,7 +1512,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     update_job(100, "Complete")
     return result
 
-async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job_id: str = None, user_id: str = None, access_token: str = None) -> dict:
+async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job_id: str = None, user_id: str = None, access_token: str = None, clip_duration: str = "auto") -> dict:
     """Fast path for captioned YouTube videos: score captions first, then download only selected windows."""
     def update_job(prog: int, step: str):
         if job_id:
@@ -1484,12 +1523,13 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     if not words:
         raise Exception("No YouTube captions were available for transcript-first processing.")
 
-    chunks = semantic_chunks(words)
+    min_sec, target_sec, max_sec = parse_duration_target(clip_duration)
+    chunks = semantic_chunks(words, min_sec=min_sec, max_sec=max_sec)
     if not chunks:
         duration = max(30.0, words[-1]["endMs"] / 1000.0)
         chunks = []
         clip_count = max(1, min(n, 30))
-        clip_len = min(35.0, max(12.0, duration / clip_count))
+        clip_len = min(max_sec, max(min_sec, target_sec))
         for i in range(clip_count):
             start = i * clip_len
             end = min(start + clip_len, duration)
@@ -1521,7 +1561,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
                 chosen_chunks.append((c, la.get("title", c.title())))
 
     if len(chosen_chunks) < n:
-        scored = [score(c) for c in chunks]
+        scored = [score(c, min_sec=min_sec, max_sec=max_sec) for c in chunks]
         heuristic_chosen = [(c, c.title()) for c in select(scored, n)]
         for hc, htitle in heuristic_chosen:
             if len(chosen_chunks) >= n:
@@ -1529,7 +1569,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    chosen_chunks = fill_requested_chunks(chosen_chunks, "", n, candidates=chunks)
+    chosen_chunks = fill_requested_chunks(chosen_chunks, "", n, candidates=chunks, target_dur=target_sec, max_dur=max_sec)
 
     if not chosen_chunks:
         raise Exception("No viable caption segments selected.")
@@ -1572,14 +1612,14 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     return {"url": url, "duration": words[-1]["endMs"] / 1000.0 if words else 0, "clips": clips_out, "status": "needs_review"}
 
 
-def execute_url_job_bg(job_id: str, url: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
+def execute_url_job_bg(job_id: str, url: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True, clip_duration: str = "auto"):
     try:
         if is_youtube_url(url):
             try:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                res = loop.run_until_complete(run_youtube_transcript_first_pipeline(url, n, base, job_id, user_id=user_id, access_token=access_token))
+                res = loop.run_until_complete(run_youtube_transcript_first_pipeline(url, n, base, job_id, user_id=user_id, access_token=access_token, clip_duration=clip_duration))
                 push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res, user_id=user_id, access_token=access_token)
                 return
             except Exception as fast_err:
@@ -1588,19 +1628,19 @@ def execute_url_job_bg(job_id: str, url: str, n: int, base: str, user_id: str = 
 
             try:
                 section_path = download_youtube_section(url, RAW_UPLOADS_DIR, 0.0, 90.0, 0, job_id)
-                execute_job_bg(job_id, section_path, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
+                execute_job_bg(job_id, section_path, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions, clip_duration=clip_duration)
                 return
             except Exception as section_err:
                 logger.warning(f"Bounded YouTube section fallback failed: {section_err}")
                 if os.getenv("RAPIDAPI_KEY"):
                     push_job_update(job_id, progress=8, current_step="Using configured YouTube ingestion provider...", user_id=user_id, access_token=access_token)
                     vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
-                    execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
+                    execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions, clip_duration=clip_duration)
                     return
                 raise Exception("YouTube link import is not configured for this cloud server. Upload the video file directly to generate clips reliably.")
 
         vpath = download_video_ingest(url, RAW_UPLOADS_DIR, job_id)
-        execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions)
+        execute_job_bg(job_id, vpath, url, n, base, user_id=user_id, access_token=access_token, burn_captions=burn_captions, clip_duration=clip_duration)
     except Exception as e:
         logger.error(f"URL job {job_id} failed: {e}")
         push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e), user_id=user_id, access_token=access_token)
@@ -1734,12 +1774,12 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
         logger.error(f"Render job {job_id} failed: {e}")
         push_job_update(job_id, progress=0, current_step="Failed", status="failed", error=str(e), user_id=user_id, access_token=access_token)
 
-def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True):
+def execute_job_bg(job_id: str, vpath: str, url_or_name: str, n: int, base: str, user_id: str = None, access_token: str = None, burn_captions: bool = True, clip_duration: str = "auto"):
     try:
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id, burn_captions=burn_captions, user_id=user_id, access_token=access_token))
+        res = loop.run_until_complete(run_pipeline(vpath, url_or_name, n, base, job_id, burn_captions=burn_captions, user_id=user_id, access_token=access_token, clip_duration=clip_duration))
         push_job_update(job_id, progress=100, current_step="Complete", status="completed", result=res, user_id=user_id, access_token=access_token)
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
@@ -1752,7 +1792,7 @@ async def process_video_api(body: ProcessRequest, request: Request):
     user_id, access_token = verify_request_user(request, body.user_id)
     try:
         vpath = await run_in_threadpool(download_video_ingest, body.url.strip(), RAW_UPLOADS_DIR)
-        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 8)), base, burn_captions=body.burn_captions, user_id=user_id, access_token=access_token)
+        return await run_pipeline(vpath, body.url.strip(), max(1, min(body.num_clips, 30)), base, burn_captions=body.burn_captions, user_id=user_id, access_token=access_token, clip_duration=body.clip_duration)
     except Exception as e:
         logger.error(f"Process failed: {e}")
         raise HTTPException(500, str(e))
@@ -1798,9 +1838,9 @@ async def create_job_api(body: ProcessRequest, background_tasks: BackgroundTasks
         access_token=access_token
     )
 
-    num_c = max(1, min(body.num_clips, 8))
+    num_c = max(1, min(body.num_clips, 30))
 
-    background_tasks.add_task(execute_url_job_bg, job_id, body.url.strip(), num_c, base, user_id, access_token, body.burn_captions)
+    background_tasks.add_task(execute_url_job_bg, job_id, body.url.strip(), num_c, base, user_id, access_token, body.burn_captions, body.clip_duration)
     logger.info(f"Queued URL background task for job {job_id}")
 
     return {"job_id": job_id, "status": "processing"}
@@ -1822,7 +1862,7 @@ async def get_job_status(job_id: str):
     raise HTTPException(404, "Job not found")
 
 @app.post("/api/upload")
-async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3), user_id: Optional[str] = Form(None), burn_captions: bool = Form(True)):
+async def upload_video_api(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), num_clips: int = Form(3), clip_duration: str = Form("auto"), user_id: Optional[str] = Form(None), burn_captions: bool = Form(True)):
     base = str(request.base_url).rstrip("/")
     verified_user_id, access_token = verify_request_user(request, user_id)
     ext = os.path.splitext(file.filename)[1] or ".mp4"
@@ -1841,9 +1881,9 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
             access_token=access_token
         )
 
-        num_c = max(1, min(num_clips, 8))
+        num_c = max(1, min(num_clips, 30))
 
-        background_tasks.add_task(execute_job_bg, job_id, vpath, file.filename, num_c, base, verified_user_id, access_token, burn_captions)
+        background_tasks.add_task(execute_job_bg, job_id, vpath, file.filename, num_c, base, verified_user_id, access_token, burn_captions, clip_duration)
         logger.info(f"Queued uploaded file background task for job {job_id}")
 
         return {"job_id": job_id, "status": "processing"}
