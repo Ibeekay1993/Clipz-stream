@@ -1493,8 +1493,9 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 cmd = [
                     resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", str(max(0.0, chunk.start)), "-i", vpath, "-t", str(chunk.duration),
-                    "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                    "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-profile:v", "high", "-level", "4.2",
+                    "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                 ]
                 subprocess.run(cmd, capture_output=True, text=True, check=True)
                 clip_url = f"/clips/{fname}"
@@ -1763,8 +1764,9 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                     cmd = [
                         resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                         "-ss", str(cut_start), "-i", sec_path, "-t", str(cut_dur),
-                        "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                        "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                        "-profile:v", "high", "-level", "4.2",
+                        "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                     ]
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
                     clip_url = f"/clips/{fname}"

@@ -143,7 +143,23 @@
                         <option value="3" selected>3 clips</option>
                         <option value="5">5 clips</option>
                         <option value="8">8 clips</option>
+                        <option value="10">10 clips</option>
+                        <option value="15">15 clips</option>
+                        <option value="20">20 clips</option>
+                        <option value="30">30 clips</option>
                     </select>
+                </div>
+
+                <div class="control-group" style="margin-top: var(--space-4);">
+                    <div class="control-label">Clip length</div>
+                    <select id="clip-duration" class="form-input" style="max-width: 260px;">
+                        <option value="auto">Auto (30s – 60s)</option>
+                        <option value="short">&lt; 30s (15s – 30s)</option>
+                        <option value="medium" selected>30s – 60s (Recommended)</option>
+                        <option value="long">60s – 90s</option>
+                        <option value="extended">90s – 120s (2 minutes)</option>
+                    </select>
+                    <div class="text-caption" style="margin-top: 4px;">Choose the target duration for each generated clip.</div>
                 </div>
             </div>
 
@@ -259,7 +275,8 @@
                         </div>
                     </div>
                     <div class="editor-tool-group">
-                        <div class="editor-tool-label">Actions</div>
+                        <div class="editor-tool-label" id="modal-clip-title">Clip</div>
+                        <p class="text-caption" id="modal-clip-desc" style="margin-bottom: var(--space-3);">Preview</p>
                         <div style="display: flex; gap: var(--space-2);">
                             <button type="button" class="btn btn-primary" id="modal-download-btn" onclick="downloadClip()" style="flex: 1;">
                                 <i class="fa-solid fa-download"></i> Download

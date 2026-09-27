@@ -74,32 +74,15 @@ function updateAuthUi(session) {
     const banner = document.getElementById('top-countdown-banner');
     const bannerText = document.querySelector('.countdown-text');
     const bannerButton = banner ? banner.querySelector('button') : null;
-    if (session) {
-        if (banner) {
-            banner.style.background = 'rgba(16, 185, 129, 0.08)';
-            banner.style.borderBottom = '1px solid rgba(16, 185, 129, 0.2)';
-        }
-        if (bannerText) bannerText.innerText = `Signed in as ${session.email}. Clips saved to your account.`;
-        if (bannerButton) {
-            bannerButton.innerText = 'Sign out';
-            bannerButton.onclick = signOut;
-            bannerButton.style.background = 'var(--bg-elevated)';
-            bannerButton.style.color = 'var(--text-primary)';
-            bannerButton.style.border = '1px solid var(--border-default)';
-        }
-    } else {
-        if (banner) {
-            banner.style.background = 'var(--bg-surface)';
-            banner.style.borderBottom = '1px solid var(--border-subtle)';
-        }
-        if (bannerText) bannerText.innerText = 'Guest projects expire after 24 hours. Sign up to save clips to your account.';
-        if (bannerButton) {
-            bannerButton.innerText = 'Sign up';
-            bannerButton.onclick = openAuthModal;
-            bannerButton.style.background = 'var(--accent)';
-            bannerButton.style.color = 'var(--bg-base)';
-            bannerButton.style.border = 'none';
-        }
+    if (!banner) return;
+    if (bannerText) {
+        bannerText.innerText = session
+            ? `Signed in as ${session.email}. Clips are saved to your account.`
+            : 'Guest projects expire after 24 hours. Sign up to save them.';
+    }
+    if (bannerButton) {
+        bannerButton.innerText = session ? 'Sign out' : 'Sign up';
+        bannerButton.onclick = session ? signOut : openAuthModal;
     }
 }
 
@@ -474,12 +457,13 @@ async function handleYoutubeSubmit(event) {
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
     if (!url) return;
 
+    const clipDuration = document.getElementById('clip-duration') ? document.getElementById('clip-duration').value : 'auto';
     showProgress("Preparing your video...", 5);
     try {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ url: url, num_clips: numClips, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
+            body: JSON.stringify({ url: url, num_clips: numClips, clip_duration: clipDuration, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
         });
         if (!response.ok) {
             const errText = await response.text();
@@ -511,12 +495,14 @@ async function handleFileUploadSubmit() {
     }
 
     const numClips = parseInt(document.getElementById('clips-count').value) || 3;
+    const clipDuration = document.getElementById('clip-duration') ? document.getElementById('clip-duration').value : 'auto';
     showProgress("Uploading video...", 10);
 
     try {
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("num_clips", numClips);
+        formData.append("clip_duration", clipDuration);
         formData.append("burn_captions", burnCaptionsEnabled ? "true" : "false");
         if (getCurrentUserId()) formData.append("user_id", getCurrentUserId());
 
@@ -666,13 +652,16 @@ async function submitRenderJob() {
         clip.startSec = start;
         clip.endSec = end;
         const newWords = transcriptText.trim().split(/\s+/).filter(Boolean);
-        const durationMs = Math.max(1, (end - start) * 1000);
-        const timePerWord = durationMs / Math.max(1, newWords.length);
-        const newCaptions = newWords.map((w, i) => ({
-            word: w,
-            startMs: Math.round(i * timePerWord),
-            endMs: Math.round((i + 1) * timePerWord)
-        }));
+        const duration = Math.max(0.1, end - start);
+        const timePerWord = (duration * 1000) / Math.max(1, newWords.length);
+        const newCaptions = newWords.map((w, i) => {
+            const offsetMs = start * 1000;
+            return {
+                word: w,
+                startMs: Math.round(offsetMs + i * timePerWord),
+                endMs: Math.round(offsetMs + (i + 1) * timePerWord)
+            };
+        });
         clip.captions = newCaptions;
     });
 
@@ -760,9 +749,9 @@ function renderResults(resultData) {
                     <button type="button" class="btn btn-secondary" onclick="shareClip('${escapeHtml(clipTitle)}', '${safeClipUrl}')" style="font-size: 0.8125rem;">
                         <i class="fa-solid fa-share-nodes"></i> Share
                     </button>
-                    <a href="${safeClipUrl}" download target="_blank" class="btn btn-primary" style="font-size: 0.8125rem; text-align: center;">
+                    <button type="button" class="btn btn-primary" onclick="directDownloadClip('${safeClipUrl}', '${escapeHtml(clipTitle)}', this)" style="font-size: 0.8125rem; text-align: center;">
                         <i class="fa-solid fa-download"></i> Download
-                    </a>
+                    </button>
                 </div>
             </div>
         `;
@@ -863,6 +852,45 @@ function closeVideoModalForce() {
 }
 
 // Download
+async function directDownloadClip(clipUrl, clipTitle, btnEl) {
+    if (!clipUrl) return;
+    const originalHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+        btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+        btnEl.disabled = true;
+    }
+    try {
+        const response = await fetch(clipUrl);
+        if (!response.ok) throw new Error("HTTP error " + response.status);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        const safeTitle = (clipTitle || "clipz-video").replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        a.download = `${safeTitle}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 1000);
+    } catch (e) {
+        console.warn("Direct blob download failed, trying direct link trigger:", e);
+        const a = document.createElement('a');
+        a.href = clipUrl;
+        a.download = `${(clipTitle || 'clip').replace(/[^a-z0-9_-]/gi, '_')}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 500);
+    } finally {
+        if (btnEl) {
+            btnEl.innerHTML = originalHtml;
+            btnEl.disabled = false;
+        }
+    }
+}
+
 async function downloadClip() {
     if (!window.currentClipUrl) return;
     const btn = document.getElementById('modal-download-btn');
