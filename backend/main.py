@@ -545,7 +545,7 @@ def render_worker_count(requested_clips: int) -> int:
 def build_uniform_chunks(video_path: str, max_clips: int) -> List[Chunk]:
     """Last-resort segmentation so uploads still produce downloadable clips."""
     duration = get_duration(video_path) or 60.0
-    clip_count = max(1, min(max_clips, 8))
+    clip_count = max(1, min(max_clips, 30))
     min_len = 5.0 if duration >= clip_count * 5.0 else max(2.0, duration / clip_count)
     clip_len = min(30.0, max(min_len, duration / clip_count))
     chunks: List[Chunk] = []
@@ -1488,7 +1488,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     if not chunks:
         duration = max(30.0, words[-1]["endMs"] / 1000.0)
         chunks = []
-        clip_count = max(1, min(n, 8))
+        clip_count = max(1, min(n, 30))
         clip_len = min(35.0, max(12.0, duration / clip_count))
         for i in range(clip_count):
             start = i * clip_len
