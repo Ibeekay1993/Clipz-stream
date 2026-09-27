@@ -315,6 +315,7 @@ def fetch_youtube_transcript_words(url_or_id: str) -> List[dict]:
         transcript = api.fetch(video_id)
         words: List[dict] = []
 
+        raw_items = []
         for item in transcript:
             if isinstance(item, dict):
                 start = float(item.get("start", 0.0) or 0.0)
@@ -324,18 +325,42 @@ def fetch_youtube_transcript_words(url_or_id: str) -> List[dict]:
                 start = float(getattr(item, "start", 0.0) or 0.0)
                 duration = float(getattr(item, "duration", 2.0) or 2.0)
                 text = str(getattr(item, "text", "") or "")
+            clean_text = text.replace("\n", " ").strip()
+            if clean_text:
+                raw_items.append({"start": start, "duration": duration, "text": clean_text})
 
-            parts = [p for p in re.split(r"\s+", text.replace("\n", " ").strip()) if p]
+        # Remove YouTube's rolling-window duplicate words between consecutive caption lines
+        words: List[dict] = []
+        for item in raw_items:
+            parts = [p for p in re.split(r"\s+", item["text"]) if p]
             if not parts:
                 continue
 
-            start_ms = int(start * 1000)
-            duration_ms = max(100, int(duration * 1000))
-            per_word = max(80, duration_ms // len(parts))
+            # Check overlap between previous words and current line start
+            max_check = min(len(parts), len(words), 12)
+            best_overlap = 0
+            for k in range(max_check, 0, -1):
+                prev_sub = [w["word"].lower().strip(".,!?\"'") for w in words[-k:]]
+                curr_sub = [p.lower().strip(".,!?\"'") for p in parts[:k]]
+                if prev_sub == curr_sub:
+                    best_overlap = k
+                    break
 
-            for idx, word in enumerate(parts):
-                word_start = start_ms + (idx * per_word)
-                words.append({"word": word, "startMs": word_start, "endMs": word_start + per_word})
+            parts_to_add = parts[best_overlap:]
+            if not parts_to_add:
+                continue
+
+            time_per_word = max(0.08, item["duration"] / max(1, len(parts)))
+            item_start_ms = int(item["start"] * 1000)
+            for idx, word in enumerate(parts_to_add):
+                w_idx = best_overlap + idx
+                w_start = int(item_start_ms + w_idx * time_per_word * 1000)
+                w_end = int(w_start + time_per_word * 1000)
+                # Ensure monotonic timestamp ordering
+                if words and w_start < words[-1]["endMs"]:
+                    w_start = words[-1]["endMs"]
+                    w_end = max(w_start + 100, int(w_start + time_per_word * 1000))
+                words.append({"word": word, "startMs": w_start, "endMs": w_end})
 
         return words
     except Exception as e:
@@ -562,7 +587,7 @@ def transcribe(video_path: str) -> List[dict]:
         os.remove(audio_path)
 
     # 3. Parse word-level timestamps directly from Groq if available
-    out = []
+    raw_out = []
     data = resp.model_dump() if hasattr(resp, "model_dump") else (resp if isinstance(resp, dict) else {})
 
     top_words = data.get("words", [])
@@ -570,7 +595,7 @@ def transcribe(video_path: str) -> List[dict]:
         for w in top_words:
             w_text = w.get("word", "").strip()
             if w_text:
-                out.append({
+                raw_out.append({
                     "word": w_text,
                     "startMs": int(w.get("start", 0.0) * 1000),
                     "endMs": int(w.get("end", 0.0) * 1000)
@@ -582,7 +607,7 @@ def transcribe(video_path: str) -> List[dict]:
                 for w in seg_words:
                     w_text = w.get("word", "").strip()
                     if w_text:
-                        out.append({
+                        raw_out.append({
                             "word": w_text,
                             "startMs": int(w.get("start", 0.0) * 1000),
                             "endMs": int(w.get("end", 0.0) * 1000)
@@ -598,7 +623,21 @@ def transcribe(video_path: str) -> List[dict]:
                 for i, w in enumerate(words):
                     w_start = start + (i * duration_per_word)
                     w_end = w_start + duration_per_word
-                    out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
+                    raw_out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
+
+    # 4. Deduplicate: Groq Whisper sometimes returns duplicate word entries at same/overlapping timestamps
+    out = []
+    seen_keys = set()
+    for w in raw_out:
+        # Use (lowercase word, rounded start time) as dedup key to catch exact and near-duplicates
+        dedup_key = (w["word"].lower().strip(".,!?"), w["startMs"] // 100)
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+        out.append(w)
+
+    # Sort by startMs to ensure monotonic ordering
+    out.sort(key=lambda x: x["startMs"])
     return out
 
 def semantic_chunks(words: List[dict], max_gap_ms: int = 1800, min_words: int = 10, max_dur_ms: int = 90_000) -> List[Chunk]:
@@ -734,13 +773,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
 
     chunk_size = 3
+    curr_time_s = 0.0
     for i in range(0, len(clip_words), chunk_size):
         group = clip_words[i:i + chunk_size]
         if not group: continue
 
+        grp_start = max(curr_time_s, (group[0]["startMs"] / 1000.0) - clip_start_sec)
+        word_time = grp_start
+
         for idx, active_w in enumerate(group):
-            w_start = max(0.0, (active_w["startMs"] / 1000.0) - clip_start_sec)
-            w_end = min(max(w_start + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec), max(w_start + 0.25, clip_end_sec - clip_start_sec))
+            if idx + 1 < len(group):
+                next_t = max(word_time + 0.12, (group[idx + 1]["startMs"] / 1000.0) - clip_start_sec)
+            else:
+                next_t = max(word_time + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec)
+
+            t_start = max(0.0, word_time)
+            t_end = min(next_t, max(t_start + 0.1, clip_end_sec - clip_start_sec))
 
             formatted_words = []
             for j, w in enumerate(group):
@@ -753,10 +801,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     formatted_words.append(f"{{\\c&H00FFFFFF&}}{word_str}")
 
             line_text = " ".join(formatted_words)
-            start_str = format_time(w_start)
-            end_str = format_time(w_end)
+            start_str = format_time(t_start)
+            end_str = format_time(t_end)
             event_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{line_text}"
             lines_events.append(event_line)
+
+            word_time = t_end
+            curr_time_s = t_end
 
     if not lines_events:
         raise Exception("No caption words overlap this clip window")
@@ -1367,6 +1418,44 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 errMsg = err[0] if err else "unknown error"
                 clip_errors.append(f"Clip {idx + 1}: {errMsg}")
 
+    # Retry any failed clips once with a basic centered-crop fallback
+    for idx in range(len(clips_out)):
+        if clips_out[idx] is None and idx < len(chosen_chunks):
+            chunk, title_text = chosen_chunks[idx]
+            fname = f"clip_{uuid.uuid4().hex[:8]}_{idx}_retry.mp4"
+            fpath = os.path.join(CLIPS_DIR, fname)
+            try:
+                logger.info(f"Retrying clip {idx + 1} with basic centered crop...")
+                basic_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
+                cmd = [
+                    resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+                    "-ss", str(max(0.0, chunk.start)), "-i", vpath, "-t", str(chunk.duration),
+                    "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                ]
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
+                clip_url = f"/clips/{fname}"
+                if user_id and access_token:
+                    pub = upload_user_clip_to_supabase(fpath, user_id, access_token)
+                    if pub: clip_url = pub
+                if clip_url.startswith("/clips/"):
+                    clip_url = f"{base}{clip_url}"
+                off = chunk.words[0]["startMs"] if chunk.words else int(chunk.start * 1000)
+                captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+                clips_out[idx] = {
+                    "id": idx, "title": title_text,
+                    "startSec": int(chunk.start), "endSec": int(chunk.end),
+                    "viralScore": chunk.score or 80,
+                    "viralReason": chunk.reasons[0] if chunk.reasons else "High-engagement clip",
+                    "captions": captions, "hookType": chunk.hook,
+                    "durationSec": round(chunk.duration, 1),
+                    "clipUrl": clip_url, "clip_url": clip_url,
+                    "brollQuery": getattr(chunk, "broll_query", ""),
+                }
+                logger.info(f"Retry render succeeded for clip {idx + 1}")
+            except Exception as retry_err:
+                logger.error(f"Retry render also failed for clip {idx + 1}: {retry_err}")
+
     clips_out = [c for c in clips_out if c is not None]
     if not clips_out:
         detail = "; ".join(clip_errors) if clip_errors else "all clips failed during transcoding"
@@ -1586,7 +1675,46 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                     clips_out[idx] = res_data
                 else:
                     errMsg = err[0] if err else "unknown error"
-                    clip_errors.append(f"Clip {idx + 1}: {errMsg}")
+        # Retry any failed clips with a centered-crop safe fallback so all requested clips are delivered
+        for idx in range(len(clips_out)):
+            if clips_out[idx] is None and idx < len(clips):
+                clip = clips[idx]
+                fname = f"clip_{uuid.uuid4().hex[:8]}_{idx}_retry.mp4"
+                fpath = os.path.join(CLIPS_DIR, fname)
+                try:
+                    logger.info(f"Retrying render for clip {idx + 1} with safe fallback...")
+                    sec_start = max(0.0, float(clip.get('startSec', 0)))
+                    sec_end = max(sec_start + 3.0, float(clip.get('endSec', sec_start + 15)))
+                    sec_path = None
+                    if is_yt:
+                        sec_path = download_youtube_section(url, RAW_UPLOADS_DIR, sec_start, sec_end, idx)
+                        cut_start = 0.0
+                        cut_dur = sec_end - sec_start
+                    else:
+                        sec_path = vpath
+                        cut_start = sec_start
+                        cut_dur = sec_end - sec_start
+
+                    basic_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
+                    cmd = [
+                        resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+                        "-ss", str(cut_start), "-i", sec_path, "-t", str(cut_dur),
+                        "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                    ]
+                    subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    clip_url = f"/clips/{fname}"
+                    if user_id and access_token:
+                        pub = upload_user_clip_to_supabase(fpath, user_id, access_token)
+                        if pub: clip_url = pub
+                    if clip_url.startswith("/clips/"):
+                        clip_url = f"{base}{clip_url}"
+                    clip['clip_url'] = clip_url
+                    clip['clipUrl'] = clip_url
+                    clips_out[idx] = clip
+                    logger.info(f"Retry render succeeded for clip {idx + 1}")
+                except Exception as retry_err:
+                    logger.error(f"Retry render also failed for clip {idx + 1}: {retry_err}")
 
         clips_out = [c for c in clips_out if c is not None]
         if not clips_out:

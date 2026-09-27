@@ -746,9 +746,9 @@ function renderResults(resultData) {
                     <button type="button" class="btn btn-secondary" onclick="shareClip('${escapeHtml(clipTitle)}', '${safeClipUrl}')" style="font-size: 0.8125rem;">
                         <i class="fa-solid fa-share-nodes"></i> Share
                     </button>
-                    <a href="${safeClipUrl}" download target="_blank" class="btn btn-primary" style="font-size: 0.8125rem; text-align: center;">
+                    <button type="button" class="btn btn-primary" onclick="directDownloadClip('${safeClipUrl}', '${escapeHtml(clipTitle)}', this)" style="font-size: 0.8125rem; text-align: center;">
                         <i class="fa-solid fa-download"></i> Download
-                    </a>
+                    </button>
                 </div>
             </div>
         `;
@@ -849,6 +849,45 @@ function closeVideoModalForce() {
 }
 
 // Download
+async function directDownloadClip(clipUrl, clipTitle, btnEl) {
+    if (!clipUrl) return;
+    const originalHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+        btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+        btnEl.disabled = true;
+    }
+    try {
+        const response = await fetch(clipUrl);
+        if (!response.ok) throw new Error("HTTP error " + response.status);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        const safeTitle = (clipTitle || "clipz-video").replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        a.download = `${safeTitle}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 1000);
+    } catch (e) {
+        console.warn("Direct blob download failed, trying direct link trigger:", e);
+        const a = document.createElement('a');
+        a.href = clipUrl;
+        a.download = `${(clipTitle || 'clip').replace(/[^a-z0-9_-]/gi, '_')}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 500);
+    } finally {
+        if (btnEl) {
+            btnEl.innerHTML = originalHtml;
+            btnEl.disabled = false;
+        }
+    }
+}
+
 async function downloadClip() {
     if (!window.currentClipUrl) return;
     const btn = document.getElementById('modal-download-btn');
