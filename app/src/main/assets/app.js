@@ -576,7 +576,9 @@ function pollJobStatus(jobId) {
                 clearInterval(pollingInterval);
                 hideProgress();
                 if (job.result && job.result.status === 'needs_review') {
-                    renderInteractiveWorkspace(job.result);
+                    // Auto-render immediately — no review step needed
+                    showProgress("Finalising clips...", 85);
+                    autoSubmitRenderJob(job.result);
                 } else {
                     renderResults(job.result);
                 }
@@ -638,6 +640,33 @@ function renderInteractiveWorkspace(resultData) {
         `;
         list.appendChild(card);
     });
+}
+
+// Silent auto-render — fires immediately after needs_review, no user input required
+async function autoSubmitRenderJob(resultData) {
+    if (!resultData || !resultData.clips || resultData.clips.length === 0) {
+        showError("No clips found to render.");
+        return;
+    }
+    try {
+        const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ url: resultData.url, clips: resultData.clips, user_id: getCurrentUserId() })
+        });
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || "Render start failed.");
+        }
+        const data = await response.json();
+        if (data.job_id) {
+            pollJobStatus(data.job_id);
+        } else {
+            throw new Error("Invalid response from render engine.");
+        }
+    } catch (err) {
+        showError(err.message || "Failed to start rendering. Please try again.");
+    }
 }
 
 async function submitRenderJob() {
