@@ -167,7 +167,7 @@
                 <button type="button" class="btn btn-secondary" onclick="goToWizardStep(1)">
                     <i class="fa-solid fa-arrow-left"></i> Back
                 </button>
-                <button type="button" class="btn btn-primary" onclick="submitWizardJob()">
+                <button type="button" class="btn btn-primary" onclick="submitWizardJob()" data-processing-lock="true">
                     Generate clips <i class="fa-solid fa-wand-magic-sparkles"></i>
                 </button>
             </div>
@@ -275,8 +275,7 @@
                         </div>
                     </div>
                     <div class="editor-tool-group">
-                        <div class="editor-tool-label" id="modal-clip-title">Clip</div>
-                        <p class="text-caption" id="modal-clip-desc" style="margin-bottom: var(--space-3);">Preview</p>
+                        <div class="editor-tool-label">Actions</div>
                         <div style="display: flex; gap: var(--space-2);">
                             <button type="button" class="btn btn-primary" id="modal-download-btn" onclick="downloadClip()" style="flex: 1;">
                                 <i class="fa-solid fa-download"></i> Download

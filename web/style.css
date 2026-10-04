@@ -1092,6 +1092,7 @@ select.form-input {
     max-height: 50vh;
     background: var(--bg-base);
     display: block;
+    object-fit: contain;
 }
 
 .editor-tools {
@@ -1379,6 +1380,9 @@ select.form-input {
     .action-bar {
         flex-direction: column;
         align-items: stretch;
+        position: sticky;
+        bottom: 72px;
+        z-index: 20;
     }
 
     .action-bar-actions {
@@ -1417,6 +1421,79 @@ select.form-input {
 
     body {
         padding-bottom: 64px;
+    }
+}
+
+@media (max-width: 640px) {
+    body {
+        overflow-x: hidden;
+    }
+
+    .hero-section {
+        padding-left: var(--space-3);
+        padding-right: var(--space-3);
+    }
+
+    .card,
+    .progress-card,
+    .error-card {
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
+    }
+
+    .input-group {
+        flex-direction: column;
+        align-items: stretch;
+        padding: var(--space-3);
+    }
+
+    .input-icon {
+        display: none;
+    }
+
+    .input-group .btn,
+    .form-input,
+    select.form-input,
+    #clips-count,
+    #clip-duration {
+        width: 100%;
+        max-width: none !important;
+    }
+
+    .control-row {
+        gap: var(--space-4);
+        align-items: center;
+    }
+
+    .progress-header {
+        align-items: flex-start;
+        gap: var(--space-3);
+    }
+
+    .progress-percentage {
+        font-size: 1rem;
+    }
+
+    .progress-steps {
+        gap: var(--space-2);
+    }
+
+    .clip-thumb {
+        max-height: 70vh;
+    }
+
+    .modal-overlay {
+        align-items: stretch;
+        padding: var(--space-3);
+    }
+
+    .modal-card {
+        max-height: calc(100vh - 24px);
+        border-radius: var(--radius-md);
+    }
+
+    .editor-preview video {
+        max-height: 58vh;
     }
 }
 
@@ -1534,31 +1611,4 @@ select.form-input {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border-width: 0;
-}
-
-/* Drag-and-drop state for the dropzone */
-.dropzone.dragover,
-.dropzone.is-dragover {
-    border-color: var(--accent);
-    background: var(--accent-muted);
-}
-
-/* Limited / disabled-state styling */
-.tab-btn.limited,
-.limited {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-/* Transcript word highlights (modal transcript) */
-.transcript-word {
-    display: inline;
-    padding: 1px 2px;
-    border-radius: 3px;
-    cursor: pointer;
-    color: var(--text-secondary);
-    transition: color 0.1s, background 0.1s;
-}
-.transcript-word:hover {
-    background: var(--bg-elevated);
 }

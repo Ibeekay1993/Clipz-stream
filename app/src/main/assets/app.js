@@ -5,6 +5,7 @@ let selectedFile = null;
 let currentWizardStep = 1;
 let currentSession = null;
 let burnCaptionsEnabled = true;
+let isProcessingJob = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeAuth();
@@ -74,15 +75,32 @@ function updateAuthUi(session) {
     const banner = document.getElementById('top-countdown-banner');
     const bannerText = document.querySelector('.countdown-text');
     const bannerButton = banner ? banner.querySelector('button') : null;
-    if (!banner) return;
-    if (bannerText) {
-        bannerText.innerText = session
-            ? `Signed in as ${session.email}. Clips are saved to your account.`
-            : 'Guest projects expire after 24 hours. Sign up to save them.';
-    }
-    if (bannerButton) {
-        bannerButton.innerText = session ? 'Sign out' : 'Sign up';
-        bannerButton.onclick = session ? signOut : openAuthModal;
+    if (session) {
+        if (banner) {
+            banner.style.background = 'rgba(16, 185, 129, 0.08)';
+            banner.style.borderBottom = '1px solid rgba(16, 185, 129, 0.2)';
+        }
+        if (bannerText) bannerText.innerText = `Signed in as ${session.email}. Clips saved to your account.`;
+        if (bannerButton) {
+            bannerButton.innerText = 'Sign out';
+            bannerButton.onclick = signOut;
+            bannerButton.style.background = 'var(--bg-elevated)';
+            bannerButton.style.color = 'var(--text-primary)';
+            bannerButton.style.border = '1px solid var(--border-default)';
+        }
+    } else {
+        if (banner) {
+            banner.style.background = 'var(--bg-surface)';
+            banner.style.borderBottom = '1px solid var(--border-subtle)';
+        }
+        if (bannerText) bannerText.innerText = 'Guest projects expire after 24 hours. Sign up to save clips to your account.';
+        if (bannerButton) {
+            bannerButton.innerText = 'Sign up';
+            bannerButton.onclick = openAuthModal;
+            bannerButton.style.background = 'var(--accent)';
+            bannerButton.style.color = 'var(--bg-base)';
+            bannerButton.style.border = 'none';
+        }
     }
 }
 
@@ -258,7 +276,7 @@ function goToWizardStep(stepNum) {
 }
 
 function submitWizardJob() {
-    if (submitWizardJob._inFlight) return;
+    if (submitWizardJob._inFlight || isProcessingJob) return;
     const activeTab = getActiveImportTab();
 
     if (activeTab === 'tab-file-btn') {
@@ -393,10 +411,13 @@ function toggleCaptions(enabled) {
 // Progress & Error
 function showProgress(stepMsg, pct) {
     const clampedPct = Math.max(0, Math.min(100, Number(pct) || 0));
+    setProcessingState(true);
     document.getElementById('progress-card').style.display = 'block';
     document.getElementById('error-card').style.display = 'none';
     document.getElementById('results-section').style.display = 'none';
     document.getElementById('progress-step').innerText = stepMsg;
+    const sub = document.getElementById('progress-sub');
+    if (sub) sub.innerText = progressSubtitleFor(stepMsg, clampedPct);
     document.getElementById('progress-pct').innerText = `${clampedPct}%`;
     document.getElementById('progress-bar-fill').style.width = `${clampedPct}%`;
 
@@ -429,12 +450,30 @@ function showProgress(stepMsg, pct) {
 
 function hideProgress() {
     document.getElementById('progress-card').style.display = 'none';
+    setProcessingState(false);
 }
 
 function showError(msg) {
     hideProgress();
+    setProcessingState(false);
     document.getElementById('error-card').style.display = 'flex';
     document.getElementById('error-message').innerText = normalizeErrorMessage(msg);
+}
+
+function setProcessingState(active) {
+    isProcessingJob = Boolean(active);
+    document.querySelectorAll('[data-processing-lock="true"]').forEach((btn) => {
+        btn.disabled = isProcessingJob;
+    });
+}
+
+function progressSubtitleFor(stepMsg, pct) {
+    const text = String(stepMsg || '').toLowerCase();
+    if (text.includes('download') || text.includes('ingest') || pct < 25) return 'Importing the highest quality source available.';
+    if (text.includes('transcrib') || text.includes('caption')) return 'Aligning speech timestamps for accurate burned-in captions.';
+    if (text.includes('analysis') || text.includes('moment') || text.includes('scor')) return 'Ranking hooks, emotion, questions, and payoff moments.';
+    if (text.includes('render') || text.includes('transcod') || pct > 70) return 'Reframing speakers and exporting vertical MP4 clips.';
+    return 'Processing your video with the cloud clipping engine.';
 }
 
 function dismissError() {
@@ -567,6 +606,7 @@ function pollJobStatus(jobId) {
             });
             if (response.status === 404) {
                 clearInterval(pollingInterval);
+                setProcessingState(false);
                 showError("Processing interrupted: job not found on server.");
                 return;
             }
@@ -584,6 +624,7 @@ function pollJobStatus(jobId) {
                 }
             } else if (job.status === 'failed') {
                 clearInterval(pollingInterval);
+                setProcessingState(false);
                 showError(normalizeErrorMessage(job.error) || "Job processing failed.");
             } else {
                 showProgress(job.current_step || "Processing...", job.progress || 10);
@@ -681,16 +722,13 @@ async function submitRenderJob() {
         clip.startSec = start;
         clip.endSec = end;
         const newWords = transcriptText.trim().split(/\s+/).filter(Boolean);
-        const duration = Math.max(0.1, end - start);
-        const timePerWord = (duration * 1000) / Math.max(1, newWords.length);
-        const newCaptions = newWords.map((w, i) => {
-            const offsetMs = start * 1000;
-            return {
-                word: w,
-                startMs: Math.round(offsetMs + i * timePerWord),
-                endMs: Math.round(offsetMs + (i + 1) * timePerWord)
-            };
-        });
+        const durationMs = Math.max(1, (end - start) * 1000);
+        const timePerWord = durationMs / Math.max(1, newWords.length);
+        const newCaptions = newWords.map((w, i) => ({
+            word: w,
+            startMs: Math.round(i * timePerWord),
+            endMs: Math.round((i + 1) * timePerWord)
+        }));
         clip.captions = newCaptions;
     });
 
@@ -902,7 +940,7 @@ async function directDownloadClip(clipUrl, clipTitle, btnEl) {
         a.click();
         setTimeout(() => {
             document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
+            window.URL.revokeObjectURL(blobUrl);
         }, 1000);
     } catch (e) {
         console.warn("Direct blob download failed, trying direct link trigger:", e);

@@ -5,6 +5,7 @@ let selectedFile = null;
 let currentWizardStep = 1;
 let currentSession = null;
 let burnCaptionsEnabled = true;
+let isProcessingJob = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeAuth();
@@ -275,7 +276,7 @@ function goToWizardStep(stepNum) {
 }
 
 function submitWizardJob() {
-    if (submitWizardJob._inFlight) return;
+    if (submitWizardJob._inFlight || isProcessingJob) return;
     const activeTab = getActiveImportTab();
 
     if (activeTab === 'tab-file-btn') {
@@ -410,10 +411,13 @@ function toggleCaptions(enabled) {
 // Progress & Error
 function showProgress(stepMsg, pct) {
     const clampedPct = Math.max(0, Math.min(100, Number(pct) || 0));
+    setProcessingState(true);
     document.getElementById('progress-card').style.display = 'block';
     document.getElementById('error-card').style.display = 'none';
     document.getElementById('results-section').style.display = 'none';
     document.getElementById('progress-step').innerText = stepMsg;
+    const sub = document.getElementById('progress-sub');
+    if (sub) sub.innerText = progressSubtitleFor(stepMsg, clampedPct);
     document.getElementById('progress-pct').innerText = `${clampedPct}%`;
     document.getElementById('progress-bar-fill').style.width = `${clampedPct}%`;
 
@@ -446,12 +450,30 @@ function showProgress(stepMsg, pct) {
 
 function hideProgress() {
     document.getElementById('progress-card').style.display = 'none';
+    setProcessingState(false);
 }
 
 function showError(msg) {
     hideProgress();
+    setProcessingState(false);
     document.getElementById('error-card').style.display = 'flex';
     document.getElementById('error-message').innerText = normalizeErrorMessage(msg);
+}
+
+function setProcessingState(active) {
+    isProcessingJob = Boolean(active);
+    document.querySelectorAll('[data-processing-lock="true"]').forEach((btn) => {
+        btn.disabled = isProcessingJob;
+    });
+}
+
+function progressSubtitleFor(stepMsg, pct) {
+    const text = String(stepMsg || '').toLowerCase();
+    if (text.includes('download') || text.includes('ingest') || pct < 25) return 'Importing the highest quality source available.';
+    if (text.includes('transcrib') || text.includes('caption')) return 'Aligning speech timestamps for accurate burned-in captions.';
+    if (text.includes('analysis') || text.includes('moment') || text.includes('scor')) return 'Ranking hooks, emotion, questions, and payoff moments.';
+    if (text.includes('render') || text.includes('transcod') || pct > 70) return 'Reframing speakers and exporting vertical MP4 clips.';
+    return 'Processing your video with the cloud clipping engine.';
 }
 
 function dismissError() {
@@ -584,6 +606,7 @@ function pollJobStatus(jobId) {
             });
             if (response.status === 404) {
                 clearInterval(pollingInterval);
+                setProcessingState(false);
                 showError("Processing interrupted: job not found on server.");
                 return;
             }
@@ -601,6 +624,7 @@ function pollJobStatus(jobId) {
                 }
             } else if (job.status === 'failed') {
                 clearInterval(pollingInterval);
+                setProcessingState(false);
                 showError(normalizeErrorMessage(job.error) || "Job processing failed.");
             } else {
                 showProgress(job.current_step || "Processing...", job.progress || 10);

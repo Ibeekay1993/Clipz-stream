@@ -387,7 +387,7 @@ def fetch_youtube_transcript_words(url_or_id: str) -> List[dict]:
                     w_end = max(w_start + 100, int(w_start + time_per_word * 1000))
                 words.append({"word": word, "startMs": w_start, "endMs": w_end})
 
-        return words
+        return sanitize_word_timestamps(words)
     except Exception as e:
         logger.warning(f"YouTubeTranscriptApi transcript fetch failed for {video_id}: {e}")
         return []
@@ -499,6 +499,72 @@ class Chunk:
         return re.sub(r"[^\w\s]", "", raw).strip().capitalize()
 
 
+def sanitize_word_timestamps(words: List[dict]) -> List[dict]:
+    """Keep caption words monotonic and usable for both ASS burn-in and transcript preview."""
+    cleaned = []
+    for w in words or []:
+        raw = str(w.get("word", "")).strip()
+        if not raw:
+            continue
+        try:
+            start_ms = int(float(w.get("startMs", 0)))
+            end_ms = int(float(w.get("endMs", start_ms + 180)))
+        except Exception:
+            continue
+        start_ms = max(0, start_ms)
+        end_ms = max(start_ms + 90, end_ms)
+        cleaned.append({"word": raw, "startMs": start_ms, "endMs": end_ms})
+
+    cleaned.sort(key=lambda x: (x["startMs"], x["endMs"]))
+    out = []
+    last_end = 0
+    seen = set()
+    for w in cleaned:
+        key = (w["word"].lower().strip(".,!?\"'"), w["startMs"] // 100)
+        if key in seen:
+            continue
+        seen.add(key)
+        start_ms = w["startMs"]
+        end_ms = w["endMs"]
+        if start_ms < last_end - 40:
+            start_ms = last_end
+            end_ms = max(start_ms + 120, end_ms)
+        out.append({"word": w["word"], "startMs": start_ms, "endMs": end_ms})
+        last_end = max(last_end, end_ms)
+    return out
+
+
+def response_captions_for_chunk(chunk: Chunk) -> List[dict]:
+    """Return captions relative to the clip start, which is what the browser player/editor expects."""
+    offset_ms = int(max(0.0, chunk.start) * 1000)
+    captions = []
+    for w in sanitize_word_timestamps(chunk.words):
+        captions.append({
+            "word": w["word"],
+            "startMs": max(0, w["startMs"] - offset_ms),
+            "endMs": max(90, w["endMs"] - offset_ms),
+        })
+    return captions
+
+
+def source_captions_from_clip(clip: dict, source_start_sec: float) -> List[dict]:
+    """Convert editor/player-relative captions back to source-relative timestamps for ASS rendering."""
+    offset_ms = int(max(0.0, source_start_sec) * 1000)
+    duration_ms = int(max(0.0, float(clip.get("endSec", 0)) - float(clip.get("startSec", 0))) * 1000)
+    raw = []
+    for w in clip.get("captions", []) or []:
+        start_ms = int(float(w.get("startMs", 0)))
+        end_ms = int(float(w.get("endMs", start_ms + 180)))
+        # If captions already look source-relative, leave them; otherwise offset from clip start.
+        looks_relative = duration_ms <= 0 or start_ms <= duration_ms + 2000
+        raw.append({
+            "word": w.get("word", ""),
+            "startMs": start_ms + offset_ms if looks_relative else start_ms,
+            "endMs": end_ms + offset_ms if looks_relative else end_ms,
+        })
+    return sanitize_word_timestamps(raw)
+
+
 def get_duration(video_path: str) -> float:
     """Return video duration in seconds using ffprobe, or 0 when probing fails."""
     try:
@@ -585,12 +651,14 @@ def build_uniform_chunks(video_path: str, max_clips: int, target_dur: float = 35
     """Last-resort segmentation so uploads still produce downloadable clips of the requested length."""
     duration = get_duration(video_path) or 120.0
     clip_count = max(1, min(max_clips, 30))
-    clip_len = min(max_dur, max(15.0, target_dur))
+    adaptive_target = duration / clip_count if clip_count > 1 else duration
+    min_viable = max(3.0, min(10.0, adaptive_target * 0.8))
+    clip_len = min(max_dur, max(min_viable, min(target_dur, adaptive_target)))
     chunks: List[Chunk] = []
     start = 0.0
-    while start + 10.0 <= duration and len(chunks) < clip_count:
+    while start + min_viable <= duration and len(chunks) < clip_count:
         end = min(start + clip_len, duration)
-        if end - start < 10.0:
+        if end - start < min_viable:
             break
         label = f"Auto segment {len(chunks) + 1}"
         chunks.append(
@@ -674,9 +742,7 @@ def transcribe(video_path: str) -> List[dict]:
         seen_keys.add(dedup_key)
         out.append(w)
 
-    # Sort by startMs to ensure monotonic ordering
-    out.sort(key=lambda x: x["startMs"])
-    return out
+    return sanitize_word_timestamps(out)
 
 def semantic_chunks(words: List[dict], min_sec: float = 28.0, max_sec: float = 60.0) -> List[Chunk]:
     if not words: return []
@@ -713,13 +779,51 @@ def semantic_chunks(words: List[dict], min_sec: float = 28.0, max_sec: float = 6
     return chunks
 
 def score(c: Chunk, min_sec: float = 15.0, max_sec: float = 125.0) -> Chunk:
-    tl = c.text.lower(); dur = c.duration; pts = 70; reasons = ["High-retention speech hook"]; hook = Hook.GENERAL
+    tl = c.text.lower(); dur = c.duration; pts = 68; reasons = []; hook = Hook.GENERAL
     if dur < (min_sec * 0.6) or dur > (max_sec * 1.3):
         c.score = 0; c.viable = False; return c
 
-    T1 = [(r"nobody (talks about|tells you)", Hook.SECRET, 25), (r"the (real|hidden) truth", Hook.REVELATION, 23)]
-    for pat, h, p in T1:
-        if re.search(pat, tl): pts += p; hook = h; reasons.append(f"Strong hook - {h.value}"); break
+    hook_patterns = [
+        (r"\b(nobody|no one) (talks about|tells you|knows)\b", Hook.SECRET, 24, "secret angle"),
+        (r"\b(the|this) (real|hidden|ugly) truth\b", Hook.REVELATION, 24, "revelation payoff"),
+        (r"\b(stop|avoid|never|mistake|wrong|danger|warning)\b", Hook.WARNING, 18, "clear warning"),
+        (r"\b(how to|here'?s how|step by step|the way to)\b", Hook.TUTORIAL, 17, "actionable tutorial"),
+        (r"\b(but|however|instead|actually|contrary|most people think)\b", Hook.CONTRARIAN, 16, "contrarian turn"),
+        (r"\b(why|what if|did you know|guess what|imagine)\b", Hook.CURIOSITY, 15, "curiosity gap"),
+        (r"\b(money|sales|revenue|profit|cost|price|paid|dollars?)\b", Hook.MONEY, 15, "money/value angle"),
+        (r"\b(cried|angry|love|hate|fear|shocked|surprised|crazy|insane)\b", Hook.EMOTIONAL, 14, "emotional spike"),
+    ]
+    for pat, h, p, reason in hook_patterns:
+        if re.search(pat, tl):
+            pts += p
+            hook = h
+            reasons.append(reason)
+            break
+
+    word_count = len(re.findall(r"\w+", c.text))
+    question_count = c.text.count("?")
+    exclaim_count = c.text.count("!")
+    if question_count:
+        pts += min(10, question_count * 5)
+        reasons.append("question-driven hook")
+    if exclaim_count:
+        pts += min(6, exclaim_count * 3)
+        reasons.append("high-energy delivery")
+    if re.search(r"\b\d+(\.\d+)?\b|%", tl):
+        pts += 8
+        reasons.append("specific number")
+    if 22 <= dur <= 75:
+        pts += 6
+        reasons.append("platform-friendly length")
+    elif dur < 18:
+        pts -= 6
+    if word_count >= 35:
+        pts += 5
+    if re.search(r"\b(subscribe|like and comment|follow for|link in bio)\b", tl):
+        pts -= 18
+
+    if not reasons:
+        reasons = ["Clear speech segment with enough context"]
 
     c.score = min(99, max(50, pts)); c.hook = hook.value; c.reasons = reasons; c.viable = True
     return c
@@ -737,6 +841,14 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     return sel
 
 def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: int, candidates: List[Chunk] = None, target_dur: float = 35.0, max_dur: float = 60.0) -> List[Tuple[Chunk, str]]:
+    deduped: List[Tuple[Chunk, str]] = []
+    used_initial: List[tuple] = []
+    for chunk, title in chosen:
+        if any(max(chunk.start, s) < min(chunk.end, e) for s, e in used_initial):
+            continue
+        deduped.append((chunk, title))
+        used_initial.append((chunk.start, chunk.end))
+    chosen = deduped
     if len(chosen) >= n:
         return chosen[:n]
     existing = [(c.start, c.end) for c, _ in chosen]
@@ -759,11 +871,13 @@ def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: i
             else:
                 duration = max(180.0, n * target_dur * 1.5)
 
-        slice_duration = min(max_dur, max(15.0, target_dur))
+        adaptive_target = duration / max(1, n)
+        min_viable = max(3.0, min(10.0, adaptive_target * 0.8))
+        slice_duration = min(max_dur, max(min_viable, min(target_dur, adaptive_target)))
         start_t = 0.0
-        while start_t + 10.0 <= duration and len(chosen) < n:
+        while start_t + min_viable <= duration and len(chosen) < n:
             end_t = min(start_t + slice_duration, duration)
-            if end_t - start_t >= 10.0:
+            if end_t - start_t >= min_viable:
                 overlaps = any(max(start_t, s) < min(end_t, e) for s, e in existing)
                 if not overlaps:
                     idx = len(chosen) + 1
@@ -836,6 +950,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     chunk_size = 3
     curr_time_s = 0.0
+    clip_duration = max(0.1, clip_end_sec - clip_start_sec) if clip_end_sec != float("inf") else float("inf")
     for i in range(0, len(clip_words), chunk_size):
         group = clip_words[i:i + chunk_size]
         if not group: continue
@@ -850,7 +965,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 next_t = max(word_time + 0.25, (active_w["endMs"] / 1000.0) - clip_start_sec)
 
             t_start = max(0.0, word_time)
-            t_end = min(next_t, max(t_start + 0.1, clip_end_sec - clip_start_sec))
+            if t_start >= clip_duration:
+                break
+            t_end = min(next_t, clip_duration)
+            if t_end <= t_start:
+                t_end = min(clip_duration, t_start + 0.18)
+            if t_end <= t_start:
+                continue
 
             formatted_words = []
             for j, w in enumerate(group):
@@ -937,6 +1058,7 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
             if len(faces) > 0:
                 frame_area = float(frame.shape[0] * frame.shape[1])
                 best = None
+                face_scores = []
                 for x, y, w, h in faces:
                     center_x = (x + w / 2.0) / width
                     size_score = min(1.0, (w * h) / max(1.0, frame_area * 0.12))
@@ -953,10 +1075,23 @@ def analyze_face_centers(vpath: str, start_sec: float, end_sec: float, sample_fp
                         if curr_roi.size and prev_roi.shape == curr_roi.shape:
                             motion_score = min(1.0, float(np.mean(cv2.absdiff(curr_roi, prev_roi))) / 18.0)
                     score_val = (continuity_score * 0.45) + (motion_score * 0.30) + (center_score * 0.15) + (size_score * 0.10)
+                    face_scores.append((score_val, center_x, x, y, w, h))
                     if best is None or score_val > best[0]:
                         best = (score_val, x, y, w, h)
-                _, x, y, w, h = best
+                best_score, x, y, w, h = best
                 center_x_norm = (x + w / 2.0) / width
+                if len(face_scores) >= 2:
+                    sorted_faces = sorted(face_scores, key=lambda item: item[1])
+                    min_center = sorted_faces[0][1]
+                    max_center = sorted_faces[-1][1]
+                    group_span = max_center - min_center
+                    crop_width_norm = min(0.90, max(0.25, (frame.shape[0] * 9.0 / 16.0) / max(1.0, frame.shape[1])))
+                    ranked = sorted(face_scores, key=lambda item: item[0], reverse=True)
+                    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+                    ambiguous_active_speaker = best_score < 0.58 or abs(best_score - second_score) < 0.08
+                    if group_span > crop_width_norm * 0.62 and ambiguous_active_speaker:
+                        center_x_norm = min(0.95, max(0.05, (min_center + max_center) / 2.0))
+                        logger.info("Speaker reframe fallback: multi-face group center used for ambiguous active speaker.")
                 tracked_x = center_x_norm
                 points.append((t_rel, center_x_norm))
             elif tracked_x is not None:
@@ -1062,7 +1197,7 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
         except Exception as e:
             logger.warning(f"ASS subtitle generation failed: {e}")
 
-    crop_filter = f"scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=1080:1920"
+    crop_filter = f"setpts=PTS-STARTPTS,scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,scale=1080:1920"
     if use_subtitles:
         escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
         vf = f"{crop_filter},subtitles='{escaped_ass}',fps=30"
@@ -1075,7 +1210,7 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
             "-ss", str(max(0.0, start - 1.5)), "-i", src, "-ss", str(min(1.5, start)), "-t", str(dur),
             "-vf", filter_graph, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
             "-profile:v", "high", "-level", "4.2",
-            "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
+            "-af", "asetpts=PTS-STARTPTS", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", out
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
@@ -1091,7 +1226,7 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
                 os.remove(out)
         except Exception:
             pass
-        fallback_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
+        fallback_filter = "setpts=PTS-STARTPTS,scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
         run_render(fallback_filter, "Fallback")
 
     if os.path.exists(ass_path):
@@ -1245,6 +1380,20 @@ Return ONLY JSON: {{"clips": [{{"chunk_id": int, "title": str, "viralScore": int
         logger.error(f"Groq Llama-3 analysis error: {e}")
         return []
 
+def run_ai_selector_with_timeout(label: str, fn, chunks: List[Chunk], n: int, timeout_sec: int) -> List[dict]:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn, chunks, n)
+    try:
+        return future.result(timeout=timeout_sec) or []
+    except concurrent.futures.TimeoutError:
+        logger.warning(f"{label} clip analysis timed out after {timeout_sec}s; moving to the next selector.")
+        return []
+    except Exception as e:
+        logger.warning(f"{label} clip analysis failed: {e}")
+        return []
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
 def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
     """
     Industry Best Practice: Dedicated Managed Inference Architecture
@@ -1255,19 +1404,19 @@ def orchestrate_multi_ai_pipeline(chunks: List[Chunk], n: int) -> List[dict]:
     - Gemini 2.0 -> Visual Intelligence Fallback
     """
     logger.info("Calling Private Modal Qwen3.6 Inference Endpoint...")
-    clips = modal_inference_analyze_chunks(chunks, n)
+    clips = run_ai_selector_with_timeout("Modal Qwen3.6", modal_inference_analyze_chunks, chunks, n, 12)
 
     if not clips:
         logger.info("Delegating to DeepSeek-R1...")
-        clips = deepseek_analyze_chunks(chunks, n)
+        clips = run_ai_selector_with_timeout("DeepSeek-R1", deepseek_analyze_chunks, chunks, n, 8)
 
     if not clips:
         logger.info("Delegating to Groq Llama-3...")
-        clips = llama_analyze_chunks(chunks, n)
+        clips = run_ai_selector_with_timeout("Groq Llama-3", llama_analyze_chunks, chunks, n, 8)
 
     if not clips:
         logger.info("Delegating to Google Gemini 2.0 Flash...")
-        clips = gemini_analyze_chunks(chunks, n)
+        clips = run_ai_selector_with_timeout("Gemini Flash", gemini_analyze_chunks, chunks, n, 8)
 
     return clips or []
 
@@ -1450,8 +1599,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if clip_url.startswith("/clips/"):
                 clip_url = f"{base}{clip_url}"
 
-            off = chunk.words[0]["startMs"] if chunk.words else int(chunk.start * 1000)
-            captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+            captions = response_captions_for_chunk(chunk)
             return i, {
                 "id": i,
                 "title": title_text,
@@ -1489,13 +1637,13 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             fpath = os.path.join(CLIPS_DIR, fname)
             try:
                 logger.info(f"Retrying clip {idx + 1} with basic centered crop...")
-                basic_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
+                basic_filter = "setpts=PTS-STARTPTS,scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
                 cmd = [
                     resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", str(max(0.0, chunk.start)), "-i", vpath, "-t", str(chunk.duration),
                     "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                     "-profile:v", "high", "-level", "4.2",
-                    "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                    "-af", "asetpts=PTS-STARTPTS", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                 ]
                 subprocess.run(cmd, capture_output=True, text=True, check=True)
                 clip_url = f"/clips/{fname}"
@@ -1504,8 +1652,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                     if pub: clip_url = pub
                 if clip_url.startswith("/clips/"):
                     clip_url = f"{base}{clip_url}"
-                off = chunk.words[0]["startMs"] if chunk.words else int(chunk.start * 1000)
-                captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+                captions = response_captions_for_chunk(chunk)
                 clips_out[idx] = {
                     "id": idx, "title": title_text,
                     "startSec": int(chunk.start), "endSec": int(chunk.end),
@@ -1617,8 +1764,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
     update_job(50, "Analysis Complete. Awaiting User Edits...")
     clips_out = []
     for i, (chunk, title_text) in enumerate(chosen_chunks):
-        off = chunk.words[0]["startMs"] if chunk.words else 0
-        captions = [{"word": w["word"], "startMs": w["startMs"] - off, "endMs": w["endMs"] - off} for w in chunk.words]
+        captions = response_captions_for_chunk(chunk)
         clips_out.append({
             "id": i,
             "title": title_text,
@@ -1711,17 +1857,13 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                     adj_start = float(clip['startSec']) - use_start
                     adj_end = float(clip['endSec']) - use_start
 
-                    w_adjusted = []
-                    for w in clip['captions']:
-                        w_copy = w.copy()
-                        offset_ms = int(adj_start * 1000)
-                        w_copy["startMs"] = w["startMs"] + offset_ms
-                        w_copy["endMs"] = w["endMs"] + offset_ms
-                        w_adjusted.append(w_copy)
+                    w_adjusted = source_captions_from_clip(clip, adj_start)
 
                     clip_url = transcode_and_upload(sec_path, adj_start, adj_end, fpath, words=w_adjusted, burn_captions=True, user_id=user_id, access_token=access_token)
                 else:
-                    clip_url = transcode_and_upload(vpath, float(clip['startSec']), float(clip['endSec']), fpath, words=clip['captions'], burn_captions=True, user_id=user_id, access_token=access_token)
+                    start_sec = float(clip['startSec'])
+                    words_for_render = source_captions_from_clip(clip, start_sec)
+                    clip_url = transcode_and_upload(vpath, start_sec, float(clip['endSec']), fpath, words=words_for_render, burn_captions=True, user_id=user_id, access_token=access_token)
 
                 if clip_url.startswith("/clips/"):
                     clip_url = f"{base}{clip_url}"
@@ -1760,13 +1902,13 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                         cut_start = sec_start
                         cut_dur = sec_end - sec_start
 
-                    basic_filter = "scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
+                    basic_filter = "setpts=PTS-STARTPTS,scale=ih*9/16:ih:force_original_aspect_ratio=increase,crop=w=ih*9/16:h=ih:x=(in_w-out_w)/2:y=0,scale=1080:1920,fps=30"
                     cmd = [
                         resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                         "-ss", str(cut_start), "-i", sec_path, "-t", str(cut_dur),
                         "-vf", basic_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                         "-profile:v", "high", "-level", "4.2",
-                        "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
+                        "-af", "asetpts=PTS-STARTPTS", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                     ]
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
                     clip_url = f"/clips/{fname}"
