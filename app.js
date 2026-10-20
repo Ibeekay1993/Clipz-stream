@@ -970,7 +970,27 @@ function closeVideoModalForce() {
     window.currentClipTitle = '';
 }
 
-// Download
+// Download helper: constructs backend attachment URL that forces direct device download
+function getDirectDownloadUrl(clipUrl, clipTitle) {
+    const safeTitle = (clipTitle || "clipz-video").replace(/[^a-zA-Z0-9_\-]/gi, '_');
+    if (!clipUrl) return '';
+    // Always use the attachment endpoint so local and cloud-stored clips download as files.
+    return `${MODAL_BASE_URL}/api/download?url=${encodeURIComponent(clipUrl)}&name=${encodeURIComponent(safeTitle)}`;
+}
+
+function triggerAttachmentDownload(url, filename) {
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.setAttribute('download', filename || 'clip.mp4');
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        try { document.body.removeChild(a); } catch (_) {}
+    }, 1000);
+}
+
+// Download: works automatically on mobile phones (iOS Safari, Android Chrome) and desktop
 async function directDownloadClip(clipUrl, clipTitle, btnEl) {
     if (!clipUrl) return;
     const originalHtml = btnEl ? btnEl.innerHTML : '';
@@ -978,30 +998,45 @@ async function directDownloadClip(clipUrl, clipTitle, btnEl) {
         btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
         btnEl.disabled = true;
     }
+
+    const safeTitle = (clipTitle || "clipz-video").replace(/[^a-zA-Z0-9_\-]/gi, '_').toLowerCase();
+    const downloadUrl = getDirectDownloadUrl(clipUrl, safeTitle);
+
+    // Detect mobile phone (iOS Safari / Android)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    if (isMobile) {
+        // On mobile, trigger attachment download directly so iOS/Android triggers the native download dialog
+        // without navigating away or opening a blank player page!
+        triggerAttachmentDownload(downloadUrl, `${safeTitle}.mp4`);
+        setTimeout(() => {
+            if (btnEl) {
+                btnEl.innerHTML = originalHtml;
+                btnEl.disabled = false;
+            }
+        }, 1500);
+        return;
+    }
+
+    // On desktop, fetch as Blob for instant named background download
     try {
-        const response = await fetch(clipUrl);
+        const response = await fetch(downloadUrl);
         if (!response.ok) throw new Error("HTTP error " + response.status);
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
+        const blobUrl = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
-        a.href = url;
-        const safeTitle = (clipTitle || "clipz-video").replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        a.href = blobUrl;
         a.download = `${safeTitle}.mp4`;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
             document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
+            window.URL.revokeObjectURL(blobUrl);
         }, 1000);
     } catch (e) {
-        console.warn("Direct blob download failed, trying direct link trigger:", e);
-        const a = document.createElement('a');
-        a.href = clipUrl;
-        a.download = `${(clipTitle || 'clip').replace(/[^a-z0-9_-]/gi, '_')}.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => document.body.removeChild(a), 500);
+        console.warn("Desktop blob download failed, falling back to direct attachment trigger:", e);
+        triggerAttachmentDownload(downloadUrl, `${safeTitle}.mp4`);
     } finally {
         if (btnEl) {
             btnEl.innerHTML = originalHtml;
@@ -1013,46 +1048,73 @@ async function directDownloadClip(clipUrl, clipTitle, btnEl) {
 async function downloadClip() {
     if (!window.currentClipUrl) return;
     const btn = document.getElementById('modal-download-btn');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
-    btn.disabled = true;
-
-    try {
-        const response = await fetch(window.currentClipUrl);
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const safeTitle = (window.currentClipTitle || "clipz-video").replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        a.download = `${safeTitle}.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-    } catch (e) {
-        console.error("Download failed:", e);
-        alert("Download failed. Please check your connection or try again.");
-    } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-    }
+    const safeTitle = (window.currentClipTitle || "clipz-video").replace(/[^a-zA-Z0-9_\-]/gi, '_').toLowerCase();
+    await directDownloadClip(window.currentClipUrl, safeTitle, btn);
 }
 
 // Social
-let currentPublishUrl = '';
+let currentShareFile = null;
+let currentShareTitle = '';
+let currentShareUrl = '';
 
-function shareClip(title, url) {
-    const fullUrl = url && url.startsWith('http') ? url : window.location.href;
-    currentPublishUrl = fullUrl;
-    if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-        navigator.share({
-            title: title,
-            text: `Check out this clip: ${title}`,
-            url: fullUrl
-        }).catch(() => openPublishModal());
-    } else {
-        openPublishModal();
+async function shareClip(title, url) {
+    currentShareFile = null;
+    currentShareTitle = title || 'Clip';
+    currentShareUrl = url || '';
+    openPublishModal();
+
+    const status = document.getElementById('share-video-status');
+    const shareButton = document.getElementById('share-video-action');
+    const downloadButton = document.getElementById('download-shared-video');
+    status.textContent = 'Preparing the video file...';
+    shareButton.hidden = true;
+    shareButton.disabled = true;
+    downloadButton.disabled = false;
+
+    try {
+        const response = await fetch(getDirectDownloadUrl(currentShareUrl, currentShareTitle));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const safeTitle = currentShareTitle.replace(/[^a-zA-Z0-9_\-]/gi, '_').toLowerCase();
+        currentShareFile = new File([blob], `${safeTitle || 'clip'}.mp4`, { type: 'video/mp4' });
+
+        let canShareFile = false;
+        try {
+            canShareFile = Boolean(navigator.share && navigator.canShare && navigator.canShare({ files: [currentShareFile] }));
+        } catch (_) {
+            canShareFile = false;
+        }
+
+        if (canShareFile) {
+            status.textContent = 'The video is ready. Tap Share video to send the MP4 file.';
+            shareButton.hidden = false;
+            shareButton.disabled = false;
+        } else {
+            status.textContent = 'This browser cannot share video files directly. Download the MP4, then share it from your Files or Photos app.';
+        }
+    } catch (error) {
+        console.error('Could not prepare video for sharing:', error);
+        status.textContent = 'Could not prepare the video for sharing. You can still download the MP4 file.';
     }
+}
+
+async function sharePreparedVideo() {
+    if (!currentShareFile || !navigator.share) return;
+    try {
+        await navigator.share({ title: currentShareTitle, files: [currentShareFile] });
+        closePublishModalForce();
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Video sharing failed:', error);
+            document.getElementById('share-video-status').textContent = 'Sharing was not available. Download the MP4 and share it from your device.';
+        }
+    }
+}
+
+async function downloadSharedVideo() {
+    if (!currentShareUrl) return;
+    closePublishModalForce();
+    await directDownloadClip(currentShareUrl, currentShareTitle);
 }
 
 function openPublishModal() {
@@ -1065,17 +1127,4 @@ function closePublishModal(e) {
 
 function closePublishModalForce() {
     document.getElementById('publish-modal').style.display = 'none';
-}
-
-function mockSocialPublish(platform) {
-    alert(`To publish directly to ${platform}, connect your account in Settings. For now, download the video or copy the link.`);
-}
-
-function copyPublishLinkFallback() {
-    navigator.clipboard.writeText(currentPublishUrl).then(() => {
-        alert('Link copied to clipboard! Paste it on your social media.');
-        closePublishModalForce();
-    }).catch(() => {
-        alert('Unable to copy link to clipboard.');
-    });
 }

@@ -363,29 +363,17 @@
         <div class="modal-card" style="max-width: 420px; padding: var(--space-6);">
             <button class="modal-close" onclick="closePublishModalForce()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
             <div style="text-align: center; margin-bottom: var(--space-5);">
-                <h2 class="text-title">Share clip</h2>
-                <p class="text-body" style="margin-top: var(--space-2);">Copy the link or download the file to post manually.</p>
+                <h2 class="text-title">Share video</h2>
+                <p class="text-body" id="share-video-status" style="margin-top: var(--space-2);">Preparing the video file...</p>
             </div>
-            <div style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-5);">
-                <button class="btn btn-secondary btn-full" onclick="mockSocialPublish('TikTok')" style="background: var(--bg-inset); border: 1px solid var(--border-default); justify-content: flex-start; gap: var(--space-3);">
-                    <i class="fa-brands fa-tiktok" style="font-size: 1.25rem;"></i>
-                    <span style="flex: 1; text-align: left;">TikTok</span>
-                    <span style="color: var(--text-muted); font-size: 0.8125rem; font-weight: 500;">Copy link</span>
+            <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+                <button class="btn btn-primary btn-full" id="share-video-action" onclick="sharePreparedVideo()" hidden disabled>
+                    <i class="fa-solid fa-share-nodes"></i> Share video
                 </button>
-                <button class="btn btn-secondary btn-full" onclick="mockSocialPublish('YouTube Shorts')" style="background: var(--bg-inset); border: 1px solid var(--border-default); justify-content: flex-start; gap: var(--space-3);">
-                    <i class="fa-brands fa-youtube" style="font-size: 1.25rem; color: #ef4444;"></i>
-                    <span style="flex: 1; text-align: left;">YouTube Shorts</span>
-                    <span style="color: var(--text-muted); font-size: 0.8125rem; font-weight: 500;">Copy link</span>
-                </button>
-                <button class="btn btn-secondary btn-full" onclick="mockSocialPublish('Instagram Reels')" style="background: var(--bg-inset); border: 1px solid var(--border-default); justify-content: flex-start; gap: var(--space-3);">
-                    <i class="fa-brands fa-instagram" style="font-size: 1.25rem; color: #e1306c;"></i>
-                    <span style="flex: 1; text-align: left;">Instagram Reels</span>
-                    <span style="color: var(--text-muted); font-size: 0.8125rem; font-weight: 500;">Copy link</span>
+                <button class="btn btn-secondary btn-full" id="download-shared-video" onclick="downloadSharedVideo()" disabled>
+                    <i class="fa-solid fa-download"></i> Download video
                 </button>
             </div>
-            <button class="btn btn-primary btn-full" onclick="copyPublishLinkFallback()">
-                <i class="fa-solid fa-link"></i> Copy link
-            </button>
         </div>
     </div>
 

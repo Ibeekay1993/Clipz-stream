@@ -12,7 +12,7 @@ from yt_dlp.utils import download_range_func
 from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form, BackgroundTasks, Body
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend_core")
 
 app = FastAPI(title="Clipz-Stream Backend (Groq + Supabase Architecture)")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition", "*"])
 
 # Storage Configuration
 _STORAGE_ROOT = os.getenv("CLIPZ_STORAGE_DIR")
@@ -942,11 +942,11 @@ def generate_ass_file(words: List[dict], clip_start_sec: float, ass_out_path: st
 ScriptType: v4.00+
 PlayResX: 720
 PlayResY: 1280
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,50,&H00FFFFFF,{highlight_color},&H00000000,&H90000000,-1,0,0,0,100,100,1.2,0,1,3.5,1.5,2,40,40,220,1
+Style: Default,Arial,44,&H00FFFFFF,{highlight_color},&H00000000,&H90000000,-1,0,0,0,100,100,0.5,0,1,3,1.2,2,40,40,220,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -987,11 +987,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     clip_words.sort(key=lambda x: x["start"])
 
     def format_time(sec):
-        sec = max(0.0, sec)
-        hrs = int(sec // 3600)
-        mins = int((sec % 3600) // 60)
-        secs = int(sec % 60)
-        cs = int((sec % 1) * 100)
+        total_cs = max(0, int(round(sec * 100)))
+        hrs, remainder = divmod(total_cs, 360000)
+        mins, remainder = divmod(remainder, 6000)
+        secs, cs = divmod(remainder, 100)
         return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
 
     def ass_escape(text: str) -> str:
@@ -1003,13 +1002,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             .strip()
         )
 
-    # 2. Form concise 2-3 word phrases and generate animated active-word dialogues
-    chunk_size = 3
-    for i in range(0, len(clip_words), chunk_size):
-        group = clip_words[i:i + chunk_size]
-        if not group:
-            continue
+    # Keep each caption phrase stable while highlighting its currently spoken word.
+    groups = []
+    group = []
+    for word in clip_words:
+        if group:
+            phrase = " ".join(item["word"] for item in group)
+            pause = word["start"] - group[-1]["end"]
+            punctuation = re.search(r"[.!?,;:…][\"')\]]?$", group[-1]["word"])
+            if len(group) >= 4 or pause > 0.65 or punctuation or len(phrase) + len(word["word"]) + 1 > 32:
+                groups.append(group)
+                group = []
+        group.append(word)
+    if group:
+        groups.append(group)
 
+    for group in groups:
         for idx, active_w in enumerate(group):
             # The active word starts at its exact spoken timestamp
             t_start = active_w["start"]
@@ -1032,13 +1040,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Build phrase with active word highlight
             formatted_words = []
             for j, w in enumerate(group):
-                word_str = ass_escape(w["word"]).upper()
+                word_str = ass_escape(w["word"])
                 if not word_str:
                     continue
                 if j == idx:
                     formatted_words.append(f"{{\\c{highlight_color}}}{word_str}{{\\r}}")
                 else:
-                    formatted_words.append(f"{{\\c&H00FFFFFF&}}{word_str}")
+                    formatted_words.append(word_str)
 
             line_text = " ".join(formatted_words)
             event_line = f"Dialogue: 0,{format_time(t_start)},{format_time(t_end)},Default,,0,0,0,,{line_text}"
@@ -1239,15 +1247,14 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
     crop_x_expr = build_dynamic_crop_x_expr(face_pts)
     logger.info(f"OpenCV Face Tracking generated {len(face_pts)} face samples. Crop X expr: {crop_x_expr[:60]}...")
 
-    # 2. Generate ASS Subtitle File if words provided and burn_captions is True
+    # 2. Generate ASS subtitles when captions are enabled.
     ass_path = out + ".ass"
     use_subtitles = False
-    if words and burn_captions:
-        try:
-            generate_ass_file(words, start, ass_path, end, style=caption_style)
-            use_subtitles = os.path.exists(ass_path)
-        except Exception as e:
-            logger.warning(f"ASS subtitle generation failed: {e}")
+    if burn_captions:
+        if not words:
+            raise Exception("Captions were requested, but no timestamped words were available.")
+        generate_ass_file(words, start, ass_path, end, style=caption_style)
+        use_subtitles = os.path.exists(ass_path)
 
     crop_filter = vertical_quality_filter(crop_x_expr)
     if use_subtitles:
@@ -1277,7 +1284,10 @@ def transcode_and_upload(src: str, start: float, end: float, out: str, words: Li
                 os.remove(out)
         except Exception:
             pass
-        fallback_filter = f"{vertical_quality_filter('(in_w-out_w)/2')},fps=30"
+        fallback_filter = vertical_quality_filter('(in_w-out_w)/2')
+        if use_subtitles:
+            fallback_filter += f",subtitles='{escaped_ass}'"
+        fallback_filter += ",fps=30"
         run_render(fallback_filter, "Fallback")
 
     if os.path.exists(ass_path):
@@ -1688,7 +1698,15 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             fpath = os.path.join(CLIPS_DIR, fname)
             try:
                 logger.info(f"Retrying clip {idx + 1} with basic centered crop...")
-                basic_filter = f"{vertical_quality_filter('(in_w-out_w)/2')},fps=30"
+                ass_path = fpath + ".ass"
+                basic_filter = vertical_quality_filter('(in_w-out_w)/2')
+                if burn_captions:
+                    if not chunk.words:
+                        raise Exception("Captions were requested, but no timestamped words were available.")
+                    generate_ass_file(chunk.words, chunk.start, ass_path, chunk.end, style=caption_style)
+                    escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+                    basic_filter += f",subtitles='{escaped_ass}'"
+                basic_filter += ",fps=30"
                 cmd = [
                     resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", str(max(0.0, chunk.start)), "-i", vpath, "-t", str(chunk.duration),
@@ -1696,6 +1714,11 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                     "-af", "asetpts=PTS-STARTPTS", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                 ]
                 subprocess.run(cmd, capture_output=True, text=True, check=True)
+                if os.path.exists(ass_path):
+                    try:
+                        os.remove(ass_path)
+                    except OSError as cleanup_error:
+                        logger.warning(f"Could not remove subtitle temp file {ass_path}: {cleanup_error}")
                 clip_url = f"/clips/{fname}"
                 if user_id and access_token:
                     pub = upload_user_clip_to_supabase(fpath, user_id, access_token)
@@ -1715,6 +1738,11 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
                 }
                 logger.info(f"Retry render succeeded for clip {idx + 1}")
             except Exception as retry_err:
+                if os.path.exists(fpath + ".ass"):
+                    try:
+                        os.remove(fpath + ".ass")
+                    except OSError as cleanup_error:
+                        logger.warning(f"Could not remove subtitle temp file {fpath}.ass: {cleanup_error}")
                 logger.error(f"Retry render also failed for clip {idx + 1}: {retry_err}")
 
     clips_out = [c for c in clips_out if c is not None]
@@ -1965,7 +1993,16 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                         cut_start = sec_start
                         cut_dur = sec_end - sec_start
 
-                    basic_filter = f"{vertical_quality_filter('(in_w-out_w)/2')},fps=30"
+                    ass_path = fpath + ".ass"
+                    basic_filter = vertical_quality_filter('(in_w-out_w)/2')
+                    if burn_captions:
+                        words_for_retry = source_captions_from_clip(clip, cut_start)
+                        if not words_for_retry:
+                            raise Exception("Captions were requested, but no timestamped words were available.")
+                        generate_ass_file(words_for_retry, cut_start, ass_path, cut_start + cut_dur, style=caption_style)
+                        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+                        basic_filter += f",subtitles='{escaped_ass}'"
+                    basic_filter += ",fps=30"
                     cmd = [
                         resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                         "-ss", str(cut_start), "-i", sec_path, "-t", str(cut_dur),
@@ -1973,6 +2010,11 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                         "-af", "asetpts=PTS-STARTPTS", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt", "yuv420p", fpath
                     ]
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    if os.path.exists(ass_path):
+                        try:
+                            os.remove(ass_path)
+                        except OSError as cleanup_error:
+                            logger.warning(f"Could not remove subtitle temp file {ass_path}: {cleanup_error}")
                     clip_url = f"/clips/{fname}"
                     if user_id and access_token:
                         pub = upload_user_clip_to_supabase(fpath, user_id, access_token)
@@ -1984,6 +2026,11 @@ def execute_render_job_bg(job_id: str, url: str, clips: List[dict], base: str, u
                     clips_out[idx] = clip
                     logger.info(f"Retry render succeeded for clip {idx + 1}")
                 except Exception as retry_err:
+                    if os.path.exists(fpath + ".ass"):
+                        try:
+                            os.remove(fpath + ".ass")
+                        except OSError as cleanup_error:
+                            logger.warning(f"Could not remove subtitle temp file {fpath}.ass: {cleanup_error}")
                     logger.error(f"Retry render also failed for clip {idx + 1}: {retry_err}")
 
         clips_out = [c for c in clips_out if c is not None]
@@ -2122,7 +2169,7 @@ async def upload_video_api(request: Request, background_tasks: BackgroundTasks, 
         raise HTTPException(500, str(e))
 
 @app.get("/clips/{filename}")
-async def serve_clip(filename: str):
+async def serve_clip(filename: str, download: bool = False, name: Optional[str] = None):
     if modal_volume:
         try:
             modal_volume.reload()
@@ -2131,7 +2178,80 @@ async def serve_clip(filename: str):
     path = os.path.join(CLIPS_DIR, filename)
     if not os.path.exists(path):
         raise HTTPException(404, "Clip not found")
+
+    if download:
+        dl_name = name or filename
+        if not dl_name.lower().endswith(".mp4"):
+            dl_name += ".mp4"
+        safe_dl_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', dl_name)
+        return FileResponse(
+            path,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_dl_name}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
     return FileResponse(path, media_type="video/mp4")
+
+@app.get("/api/download")
+async def download_clip_endpoint(url: str, name: Optional[str] = "clip"):
+    """Dedicated download endpoint that forces Content-Disposition: attachment for mobile & desktop downloads."""
+    dl_name = name or "clip"
+    if not dl_name.lower().endswith(".mp4"):
+        dl_name += ".mp4"
+    safe_dl_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', dl_name)
+
+    # 1. Check if the URL points to a local clip on this server
+    clean_url = url.split("?")[0]
+    filename = os.path.basename(clean_url)
+    local_path = os.path.join(CLIPS_DIR, filename)
+    if os.path.exists(local_path):
+        return FileResponse(
+            local_path,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_dl_name}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+
+    # 2. If it is an external URL (e.g. Supabase Storage), stream with attachment header
+    session = None
+    try:
+        import aiohttp
+        session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=None, connect=20, sock_read=120)
+        )
+        upstream = await session.get(url)
+    except Exception as e:
+        if session:
+            await session.close()
+        logger.warning(f"Could not open clip download stream: {e}")
+        raise HTTPException(502, "Could not retrieve the clip for download.") from e
+
+    if upstream.status != 200:
+        status = upstream.status
+        upstream.release()
+        await session.close()
+        raise HTTPException(502, f"Clip storage returned HTTP {status}.")
+
+    async def file_stream():
+        try:
+            async for chunk in upstream.content.iter_chunked(64 * 1024):
+                yield chunk
+        finally:
+            upstream.release()
+            await session.close()
+
+    return StreamingResponse(
+        file_stream(),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_dl_name}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
 
 @app.get("/api/capabilities")
 async def capabilities():
