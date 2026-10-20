@@ -63,8 +63,8 @@ def resolve_media_binary(env_name: str, executable: str) -> str:
     return shutil.which(executable) or executable
 
 def render_quality_args() -> List[str]:
-    """High-quality x264 defaults for social clips. Override with env vars if Modal speed/cost needs tuning."""
-    preset = os.getenv("CLIP_RENDER_PRESET", "medium").strip() or "medium"
+    """Speed-optimized x264 defaults; override with env vars for quality or cost tuning."""
+    preset = os.getenv("CLIP_RENDER_PRESET", "veryfast").strip() or "veryfast"
     crf = os.getenv("CLIP_RENDER_CRF", "15").strip() or "15"
     return [
         "-c:v", "libx264",
@@ -78,12 +78,11 @@ def render_quality_args() -> List[str]:
     ]
 
 def vertical_quality_filter(crop_x_expr: str = "(in_w-out_w)/2") -> str:
-    """Crisp 9:16 crop with high-quality scaling and light sharpening after upscale."""
+    """Create a 9:16 crop without upscaling beyond the source's available detail."""
     return (
         "setpts=PTS-STARTPTS,"
-        "scale=ih*9/16:ih:force_original_aspect_ratio=increase:flags=lanczos,"
-        f"crop=w=ih*9/16:h=ih:x='{crop_x_expr}':y=0,"
-        "scale=1080:1920:flags=lanczos,"
+        f"crop=w='min(iw,ih*9/16)':h='min(ih,iw*16/9)':x='{crop_x_expr}':y='(ih-oh)/2',"
+        "scale=w='min(1080,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,"
         "unsharp=5:5:0.45:3:3:0.20,"
         "setsar=1"
     )
@@ -1239,7 +1238,7 @@ def upload_user_clip_to_supabase(local_path: str, user_id: str, access_token: st
         return None
 
 def transcode_and_upload(src: str, start: float, end: float, out: str, words: List[dict] = None, burn_captions: bool = False, caption_style: str = "neon", user_id: str = None, access_token: str = None) -> str:
-    """Safe FFmpeg Full HD 1080p crop + Multi-Cascade OpenCV Face-Tracking + High-Bitrate Audio & Video"""
+    """Render a source-detail-preserving 9:16 crop with OpenCV face tracking and high-bitrate audio."""
     dur = end - start
 
     # 1. Analyze face positions for dynamic 9:16 speaker tracking
@@ -2326,7 +2325,7 @@ try:
     @modal_app.function(
         image=image,
         timeout=600,
-        cpu=2.0,
+        cpu=4.0,
         secrets=secrets_list,
         volumes={"/root/storage": modal_volume_instance}
     )

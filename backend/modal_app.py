@@ -68,7 +68,7 @@ def run_background_job(job_id: str, url: str, num_clips: int, base_url: str):
     image=image,
     secrets=[modal.Secret.from_name("clipz-secrets")],
     timeout=600,
-    cpu=2.0,
+    cpu=4.0,
     volumes={"/root/storage": volume}
 )
 @modal.asgi_app()
