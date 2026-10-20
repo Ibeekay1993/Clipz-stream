@@ -80,6 +80,13 @@
                             Next <i class="fa-solid fa-arrow-right"></i>
                         </button>
                     </div>
+                    <div class="platform-support-row" style="display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+                        <span class="text-caption" style="font-size: 0.75rem; color: var(--text-muted);">Supports:</span>
+                        <span class="platform-chip"><i class="fa-brands fa-youtube" style="color: #ef4444;"></i> YouTube</span>
+                        <span class="platform-chip"><i class="fa-brands fa-twitch" style="color: #a855f7;"></i> Twitch</span>
+                        <span class="platform-chip"><i class="fa-solid fa-gamepad" style="color: #22c55e;"></i> Kick</span>
+                        <span class="platform-chip"><i class="fa-solid fa-video" style="color: #3b82f6;"></i> Web Links</span>
+                    </div>
                     <div class="youtube-capability-note" id="youtube-capability-note" style="display: none; margin-top: 12px;">
                         <span>YouTube import is limited on this server. Upload an MP4 for reliable clipping.</span>
                         <button type="button" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8125rem;" onclick="switchTab('file')">Use Upload</button>
@@ -123,15 +130,37 @@
                 </div>
 
                 <div class="control-group" style="margin-bottom: var(--space-5);">
-                    <div class="control-row" style="justify-content: space-between;">
+                    <div class="control-row" style="justify-content: space-between; align-items: center;">
                         <div>
-                            <div class="control-label">Captions</div>
-                            <div class="text-caption">Burn captions into the video</div>
+                            <div class="control-label" style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-closed-captioning" style="color: var(--accent);"></i>
+                                <span>Animated Captions</span>
+                            </div>
+                            <div class="text-caption">Word-synced subtitles burned into your clips</div>
                         </div>
                         <label class="switch">
                             <input type="checkbox" id="captions-toggle" checked onchange="toggleCaptions(this.checked)">
                             <span class="switch-slider"></span>
                         </label>
+                    </div>
+
+                    <!-- Caption Style Selection -->
+                    <div id="caption-style-picker" style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+                        <span class="text-caption" style="font-weight: 600; color: var(--text-secondary);">Subtitle Style</span>
+                        <div class="caption-style-options" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" class="caption-style-btn active" data-style="neon" onclick="setCaptionStyle('neon')">
+                                <span class="style-dot" style="background: #00FF00;"></span>
+                                <span>Viral Neon</span>
+                            </button>
+                            <button type="button" class="caption-style-btn" data-style="yellow" onclick="setCaptionStyle('yellow')">
+                                <span class="style-dot" style="background: #FFFF00;"></span>
+                                <span>Cyber Yellow</span>
+                            </button>
+                            <button type="button" class="caption-style-btn" data-style="white" onclick="setCaptionStyle('white')">
+                                <span class="style-dot" style="background: #FFFFFF;"></span>
+                                <span>Clean White</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -241,9 +270,14 @@
                         <h2 class="results-title">Clips</h2>
                         <span class="results-badge" id="clips-total-badge">3 Ready</span>
                     </div>
-                    <button class="btn btn-secondary" onclick="resetApp()">
-                        <i class="fa-solid fa-plus"></i> New video
-                    </button>
+                    <div style="display: flex; align-items: center; gap: var(--space-2);">
+                        <button type="button" class="btn btn-primary" id="btn-download-all" onclick="downloadAllClips()" style="padding: 8px 16px; font-size: 0.8125rem;">
+                            <i class="fa-solid fa-download"></i> Download All
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="resetApp()" style="padding: 8px 16px; font-size: 0.8125rem;">
+                            <i class="fa-solid fa-plus"></i> New video
+                        </button>
+                    </div>
                 </div>
                 <div class="clips-grid" id="clips-grid"></div>
             </section>

@@ -1034,6 +1034,71 @@ select.form-input {
     font-variant-numeric: tabular-nums;
 }
 
+.clip-score-badge {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    background: rgba(16, 185, 129, 0.9);
+    backdrop-filter: blur(4px);
+    color: #ffffff;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.caption-style-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.caption-style-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.caption-style-btn.active {
+    background: var(--accent-muted);
+    border-color: var(--accent);
+    color: var(--text-primary);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+.style-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.platform-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
 .clip-body {
     padding: var(--space-4);
     display: flex;

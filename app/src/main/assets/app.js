@@ -5,6 +5,7 @@ let selectedFile = null;
 let currentWizardStep = 1;
 let currentSession = null;
 let burnCaptionsEnabled = true;
+let selectedCaptionStyle = 'neon';
 let isProcessingJob = false;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -406,6 +407,17 @@ function setFile(file) {
 
 function toggleCaptions(enabled) {
     burnCaptionsEnabled = enabled;
+    const stylePicker = document.getElementById('caption-style-picker');
+    if (stylePicker) {
+        stylePicker.style.display = enabled ? 'flex' : 'none';
+    }
+}
+
+function setCaptionStyle(style) {
+    selectedCaptionStyle = style;
+    document.querySelectorAll('.caption-style-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.style === style);
+    });
 }
 
 // Progress & Error
@@ -502,7 +514,7 @@ async function handleYoutubeSubmit(event) {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/create`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ url: url, num_clips: numClips, clip_duration: clipDuration, burn_captions: burnCaptionsEnabled, user_id: getCurrentUserId() })
+            body: JSON.stringify({ url: url, num_clips: numClips, clip_duration: clipDuration, burn_captions: burnCaptionsEnabled, caption_style: selectedCaptionStyle, user_id: getCurrentUserId() })
         });
         if (!response.ok) {
             const errText = await response.text();
@@ -543,6 +555,7 @@ async function handleFileUploadSubmit() {
         formData.append("num_clips", numClips);
         formData.append("clip_duration", clipDuration);
         formData.append("burn_captions", burnCaptionsEnabled ? "true" : "false");
+        formData.append("caption_style", selectedCaptionStyle);
         if (getCurrentUserId()) formData.append("user_id", getCurrentUserId());
 
         const response = await fetch(`${MODAL_BASE_URL}/api/upload`, {
@@ -693,7 +706,7 @@ async function autoSubmitRenderJob(resultData) {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ url: resultData.url, clips: resultData.clips, user_id: getCurrentUserId() })
+            body: JSON.stringify({ url: resultData.url, clips: resultData.clips, burn_captions: burnCaptionsEnabled, caption_style: selectedCaptionStyle, user_id: getCurrentUserId() })
         });
         if (!response.ok) {
             const errText = await response.text();
@@ -739,7 +752,7 @@ async function submitRenderJob() {
         const response = await fetch(`${MODAL_BASE_URL}/api/jobs/render`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips, user_id: getCurrentUserId() })
+            body: JSON.stringify({ url: currentWorkspaceJob.url, clips: currentWorkspaceJob.clips, burn_captions: burnCaptionsEnabled, caption_style: selectedCaptionStyle, user_id: getCurrentUserId() })
         });
         if (!response.ok) {
             const errText = await response.text();
@@ -798,35 +811,74 @@ function renderResults(resultData) {
 
         const card = document.createElement('div');
         card.className = 'clip-card';
+        const viralScoreVal = clip.viralScore ? (clip.viralScore / 10).toFixed(1) : '9.0';
         card.innerHTML = `
             <div class="clip-thumb" onclick="openVideoModal(${index})">
-                <video src="${safeClipUrl}" playsinline preload="metadata"></video>
+                <video src="${safeClipUrl}" playsinline preload="metadata" muted loop></video>
                 <div class="clip-duration">${durationLabel}</div>
+                <div class="clip-score-badge"><i class="fa-solid fa-fire"></i> ${viralScoreVal}</div>
             </div>
             <div class="clip-body">
                 <div class="clip-title">#${index + 1} ${escapeHtml(clipTitle)}</div>
                 <div class="clip-reason">${escapeHtml(clip.viralReason || 'High-engagement segment')}</div>
                 <div style="display: flex; gap: var(--space-2); font-size: 0.8125rem; color: var(--text-muted); align-items: center;">
                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                        <i class="fa-solid fa-closed-captioning" style="font-size: 0.75rem;"></i>
-                        ${burnCaptionsEnabled ? 'Captions on' : 'No captions'}
+                        <i class="fa-solid fa-closed-captioning" style="font-size: 0.75rem; color: ${burnCaptionsEnabled ? 'var(--accent)' : 'inherit'};"></i>
+                        ${burnCaptionsEnabled ? 'Captions (' + (selectedCaptionStyle || 'neon') + ')' : 'No captions'}
                     </span>
                 </div>
                 <div class="clip-actions">
-                    <button type="button" class="btn btn-secondary" onclick="shareClip('${escapeHtml(clipTitle)}', '${safeClipUrl}')" style="font-size: 0.8125rem;">
+                    <button type="button" class="btn btn-secondary" title="Copy Link" onclick="copyClipUrl('${safeClipUrl}', this)" style="padding: 8px 12px; font-size: 0.8125rem;">
+                        <i class="fa-solid fa-link"></i>
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="shareClip('${escapeHtml(clipTitle)}', '${safeClipUrl}')" style="font-size: 0.8125rem; flex: 1;">
                         <i class="fa-solid fa-share-nodes"></i> Share
                     </button>
-                    <button type="button" class="btn btn-primary" onclick="directDownloadClip('${safeClipUrl}', '${escapeHtml(clipTitle)}', this)" style="font-size: 0.8125rem; text-align: center;">
+                    <button type="button" class="btn btn-primary" onclick="directDownloadClip('${safeClipUrl}', '${escapeHtml(clipTitle)}', this)" style="font-size: 0.8125rem; flex: 1; text-align: center;">
                         <i class="fa-solid fa-download"></i> Download
                     </button>
                 </div>
             </div>
         `;
+
+        const vidEl = card.querySelector('video');
+        if (vidEl) {
+            card.addEventListener('mouseenter', () => vidEl.play().catch(() => {}));
+            card.addEventListener('mouseleave', () => { vidEl.pause(); vidEl.currentTime = 0; });
+        }
+
         clipsGrid.appendChild(card);
     });
 
     resultsSection.style.display = 'block';
     resultsSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+function copyClipUrl(url, btnEl) {
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+        if (btnEl) {
+            const orig = btnEl.innerHTML;
+            btnEl.innerHTML = '<i class="fa-solid fa-check" style="color: var(--accent);"></i>';
+            setTimeout(() => { btnEl.innerHTML = orig; }, 1500);
+        }
+    }).catch(() => {});
+}
+
+async function downloadAllClips() {
+    if (!window.currentClips || window.currentClips.length === 0) return;
+    const btn = document.getElementById('btn-download-all');
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+    for (let i = 0; i < window.currentClips.length; i++) {
+        const clip = window.currentClips[i];
+        const rawUrl = clip.clipUrl || clip.clip_url || '';
+        const url = rawUrl.startsWith('/') ? `${MODAL_BASE_URL}${rawUrl}` : rawUrl;
+        const title = clip.title || `Clip_${i + 1}`;
+        await directDownloadClip(url, title, null);
+        await new Promise(r => setTimeout(r, 600));
+    }
+    if (btn) btn.innerHTML = orig;
 }
 
 function escapeHtml(text) {
@@ -940,7 +992,7 @@ async function directDownloadClip(clipUrl, clipTitle, btnEl) {
         a.click();
         setTimeout(() => {
             document.body.removeChild(a);
-            window.URL.revokeObjectURL(blobUrl);
+            window.URL.revokeObjectURL(url);
         }, 1000);
     } catch (e) {
         console.warn("Direct blob download failed, trying direct link trigger:", e);
