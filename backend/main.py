@@ -675,102 +675,88 @@ def parse_duration_target(pref: str) -> Tuple[float, float, float]:
     else: # auto
         return 28.0, 45.0, 60.0
 
-def build_uniform_chunks(video_path: str, max_clips: int, target_dur: float = 35.0, max_dur: float = 60.0) -> List[Chunk]:
-    """Last-resort segmentation so uploads still produce downloadable clips of the requested length."""
-    duration = get_duration(video_path) or 120.0
-    clip_count = max(1, min(max_clips, 30))
-    adaptive_target = duration / clip_count if clip_count > 1 else duration
-    min_viable = max(3.0, min(10.0, adaptive_target * 0.8))
-    clip_len = min(max_dur, max(min_viable, min(target_dur, adaptive_target)))
-    chunks: List[Chunk] = []
-    start = 0.0
-    while start + min_viable <= duration and len(chunks) < clip_count:
-        end = min(start + clip_len, duration)
-        if end - start < min_viable:
-            break
-        label = f"Auto segment {len(chunks) + 1}"
-        chunks.append(
-            Chunk(
-                start=start,
-                end=end,
-                text=label,
-                words=[{"word": label, "startMs": int(start * 1000), "endMs": int(end * 1000)}],
-                score=max(70, 86 - (len(chunks) * 3)),
-                hook="General",
-                reasons=["Balanced viral clip moment"],
-                viable=True,
-            )
-        )
-        start += clip_len
-    return chunks
 def transcribe(video_path: str) -> List[dict]:
-    # 1. Extract audio
-    audio_path = video_path + ".mp3"
-    subprocess.run([resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-i", video_path, "-vn", "-c:a", "libmp3lame", "-q:a", "5", audio_path], check=True, capture_output=True)
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not configured on the backend.")
 
-    # 2. Call Groq with native word-level timestamps
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    with open(audio_path, "rb") as f:
-        resp = client.audio.transcriptions.create(
-            file=("audio.mp3", f),
-            model="whisper-large-v3",
-            response_format="verbose_json",
-            timestamp_granularities=["word"]
-        )
-    if os.path.exists(audio_path):
-        os.remove(audio_path)
-
-    # 3. Parse word-level timestamps directly from Groq if available
     raw_out = []
-    data = resp.model_dump() if hasattr(resp, "model_dump") else (resp if isinstance(resp, dict) else {})
+    with tempfile.TemporaryDirectory(prefix="clipz-transcription-") as temp_dir:
+        chunk_pattern = os.path.join(temp_dir, "audio_%04d.mp3")
+        command = [
+            resolve_media_binary("FFMPEG_BINARY", "ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", video_path, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000",
+            "-c:a", "libmp3lame", "-b:a", "32k", "-f", "segment", "-segment_time", "600",
+            "-reset_timestamps", "1", chunk_pattern,
+        ]
+        extraction = subprocess.run(command, capture_output=True, text=True)
+        if extraction.returncode != 0:
+            detail = (extraction.stderr or "unknown FFmpeg error").strip()[-500:]
+            raise RuntimeError(f"Could not extract audio from the video: {detail}")
 
-    top_words = data.get("words", [])
-    if top_words:
-        for w in top_words:
-            w_text = w.get("word", "").strip()
-            if w_text:
-                raw_out.append({
-                    "word": w_text,
-                    "startMs": int(w.get("start", 0.0) * 1000),
-                    "endMs": int(w.get("end", 0.0) * 1000)
-                })
-    else:
-        for seg in data.get("segments", []):
-            seg_words = seg.get("words", [])
-            if seg_words:
-                for w in seg_words:
-                    w_text = w.get("word", "").strip()
-                    if w_text:
-                        raw_out.append({
-                            "word": w_text,
-                            "startMs": int(w.get("start", 0.0) * 1000),
-                            "endMs": int(w.get("end", 0.0) * 1000)
-                        })
+        audio_chunks = sorted(
+            os.path.join(temp_dir, name)
+            for name in os.listdir(temp_dir)
+            if name.startswith("audio_") and name.endswith(".mp3")
+        )
+        if not audio_chunks:
+            raise RuntimeError("The video does not contain an audio track to transcribe.")
+
+        client = Groq(api_key=api_key)
+        for chunk_index, audio_path in enumerate(audio_chunks):
+            with open(audio_path, "rb") as audio_file:
+                response = client.audio.transcriptions.create(
+                    file=(os.path.basename(audio_path), audio_file),
+                    model="whisper-large-v3",
+                    response_format="verbose_json",
+                    timestamp_granularities=["word"],
+                )
+
+            data = response.model_dump() if hasattr(response, "model_dump") else response
+            if not isinstance(data, dict):
+                raise RuntimeError("Speech transcription returned an unsupported response.")
+
+            chunk_offset_ms = chunk_index * 600_000
+            top_words = data.get("words") or []
+            segments = data.get("segments") or []
+            if top_words:
+                timestamped_words = top_words
             else:
-                # Fallback to even split if no word array returned
-                text = seg.get("text", "").strip()
-                start = seg.get("start", 0.0)
-                end = seg.get("end", 0.0)
-                words = text.split()
-                if not words: continue
-                duration_per_word = (end - start) / len(words)
-                for i, w in enumerate(words):
-                    w_start = start + (i * duration_per_word)
-                    w_end = w_start + duration_per_word
-                    raw_out.append({"word": w, "startMs": int(w_start * 1000), "endMs": int(w_end * 1000)})
+                timestamped_words = []
+                for segment in segments:
+                    segment_words = segment.get("words") or []
+                    if segment_words:
+                        timestamped_words.extend(segment_words)
+                        continue
 
-    # 4. Deduplicate: Groq Whisper sometimes returns duplicate word entries at same/overlapping timestamps
-    out = []
-    seen_keys = set()
-    for w in raw_out:
-        # Use (lowercase word, rounded start time) as dedup key to catch exact and near-duplicates
-        dedup_key = (w["word"].lower().strip(".,!?"), w["startMs"] // 100)
-        if dedup_key in seen_keys:
-            continue
-        seen_keys.add(dedup_key)
-        out.append(w)
+                    text = str(segment.get("text", "")).strip()
+                    segment_words = text.split()
+                    if not segment_words:
+                        continue
+                    segment_start = float(segment.get("start", 0.0) or 0.0)
+                    segment_end = float(segment.get("end", segment_start) or segment_start)
+                    word_duration = max(0.0, segment_end - segment_start) / len(segment_words)
+                    timestamped_words.extend(
+                        {
+                            "word": word,
+                            "start": segment_start + index * word_duration,
+                            "end": segment_start + (index + 1) * word_duration,
+                        }
+                        for index, word in enumerate(segment_words)
+                    )
 
-    return sanitize_word_timestamps(out)
+            for word in timestamped_words:
+                text = str(word.get("word", "")).strip()
+                if not text:
+                    continue
+                start_ms = chunk_offset_ms + int(float(word.get("start", 0.0) or 0.0) * 1000)
+                end_ms = chunk_offset_ms + int(float(word.get("end", 0.0) or 0.0) * 1000)
+                raw_out.append({"word": text, "startMs": start_ms, "endMs": max(start_ms + 90, end_ms)})
+
+    words = sanitize_word_timestamps(raw_out)
+    if not words:
+        raise RuntimeError("Speech recognition returned no words. Check that the video has clear speech.")
+    return words
 
 def semantic_chunks(words: List[dict], min_sec: float = 28.0, max_sec: float = 60.0) -> List[Chunk]:
     if not words: return []
@@ -1578,43 +1564,25 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
     logger.info("Starting Multi-AI Engine transcript analysis...")
     words = []
 
-    # Fast-Track 1: Try YoutubeTranscriptApi for YouTube links
-    if "youtube.com" in url_or_name or "youtu.be" in url_or_name:
-        try:
-            vid_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url_or_name)
-            if vid_match:
-                v_id = vid_match.group(1)
-                from youtube_transcript_api import YouTubeTranscriptApi
-                api = YouTubeTranscriptApi()
-                yt_trans = api.fetch(v_id)
-                if yt_trans:
-                    logger.info(f"YouTubeTranscriptApi fast-track fetched {len(yt_trans)} captions for {v_id}")
-                    for item in yt_trans:
-                        s_ms = int(item.get('start', 0) * 1000)
-                        d_ms = int(item.get('duration', 2.0) * 1000)
-                        text_val = item.get('text', '')
-                        yt_words = [w for w in text_val.split() if w.strip()]
-                        per_word = max(120, d_ms // max(1, len(yt_words)))
-                        for idx, w in enumerate(yt_words):
-                            w_start = s_ms + (idx * per_word)
-                            w_end = min(s_ms + d_ms, w_start + per_word)
-                            words.append({"word": w, "startMs": w_start, "endMs": max(w_start + 80, w_end)})
-        except Exception as yte:
-            logger.warning(f"YouTubeTranscriptApi fast-track note: {yte}")
+    if is_youtube_url(url_or_name):
+        words = fetch_youtube_transcript_words(url_or_name)
+        if words:
+            logger.info(f"YouTube transcript fast-track fetched {len(words)} timestamped words.")
 
     if not words:
         try:
             words = transcribe(vpath)
         except Exception as te:
-            logger.warning(f"Speech transcription unavailable, falling back to timed clips: {te}")
-            words = []
+            logger.exception(f"Speech transcription failed for {url_or_name}: {te}")
+            raise RuntimeError(
+                "Speech transcription failed. Check that GROQ_API_KEY is configured in the Modal "
+                "clipz-secrets secret and that the video contains a clear audio track, then try again."
+            ) from te
 
     min_sec, target_sec, max_sec = parse_duration_target(clip_duration)
-    chunks = semantic_chunks(words, min_sec=min_sec, max_sec=max_sec) if words else []
+    chunks = semantic_chunks(words, min_sec=min_sec, max_sec=max_sec)
     if not chunks:
-        logger.info("Generating fail-safe timed chunks...")
-        chunks = build_uniform_chunks(vpath, n, target_dur=target_sec, max_dur=max_sec)
-    if not chunks: raise HTTPException(500, "Could not form video segments")
+        raise RuntimeError("Speech was transcribed, but no suitable clip segments could be formed.")
 
     # Call Orchestrated Multi-AI Microservices Pipeline
     try:
