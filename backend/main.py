@@ -2232,7 +2232,11 @@ async def capabilities():
     }
 @app.get("/health")
 def health():
-    return {"status": "ok", "architecture": "Groq Llama-3-70B + Supabase Serverless"}
+    return {
+        "status": "ok",
+        "architecture": "Groq Llama-3-70B + Supabase Serverless",
+        "build_id": os.getenv("BUILD_ID", "development"),
+    }
 
 @app.get("/")
 def root():
