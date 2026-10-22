@@ -11,5 +11,6 @@ aiohttp
 
 # External APIs
 groq
+openai
 supabase
 youtube-transcript-api

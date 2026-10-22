@@ -768,7 +768,7 @@ def semantic_chunks(words: List[dict], min_sec: float = 28.0, max_sec: float = 6
     def flush():
         if buf:
             dur = (buf[-1]["endMs"] - buf[0]["startMs"]) / 1000.0
-            if dur >= max(5.0, min_sec * 0.7):
+            if dur >= max(5.0, min_sec * 0.3):
                 chunks.append(Chunk(
                     start=buf[0]["startMs"] / 1000.0,
                     end=buf[-1]["endMs"] / 1000.0,
@@ -854,7 +854,7 @@ def select(scored: List[Chunk], n: int) -> List[Chunk]:
     sel.sort(key=lambda x: x.start)
     return sel
 
-def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: int, candidates: List[Chunk] = None, target_dur: float = 35.0, max_dur: float = 60.0) -> List[Tuple[Chunk, str]]:
+def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], n: int, candidates: List[Chunk] = None) -> List[Tuple[Chunk, str]]:
     deduped: List[Tuple[Chunk, str]] = []
     used_initial: List[tuple] = []
     for chunk, title in chosen:
@@ -875,39 +875,6 @@ def fill_requested_chunks(chosen: List[Tuple[Chunk, str]], video_path: str, n: i
             continue
         chosen.append((fallback, fallback.title()))
         existing.append((fallback.start, fallback.end))
-
-    # Guarantee exact requested clip count n by carving out slices of target_dur
-    if len(chosen) < n:
-        duration = get_duration(video_path) if video_path else 0
-        if not duration or duration <= 0:
-            if candidates and candidates[-1].end > 0:
-                duration = candidates[-1].end
-            else:
-                duration = max(180.0, n * target_dur * 1.5)
-
-        adaptive_target = duration / max(1, n)
-        min_viable = max(3.0, min(10.0, adaptive_target * 0.8))
-        slice_duration = min(max_dur, max(min_viable, min(target_dur, adaptive_target)))
-        start_t = 0.0
-        while start_t + min_viable <= duration and len(chosen) < n:
-            end_t = min(start_t + slice_duration, duration)
-            if end_t - start_t >= min_viable:
-                overlaps = any(max(start_t, s) < min(end_t, e) for s, e in existing)
-                if not overlaps:
-                    idx = len(chosen) + 1
-                    fb_chunk = Chunk(
-                        start=start_t,
-                        end=end_t,
-                        text=f"Clip Moment {idx}",
-                        words=[{"word": f"Clip Moment {idx}", "startMs": int(start_t * 1000), "endMs": int(end_t * 1000)}],
-                        score=max(70, 88 - (idx * 2)),
-                        hook="General",
-                        reasons=["High retention speech segment"],
-                        viable=True
-                    )
-                    chosen.append((fb_chunk, f"Clip Moment {idx}"))
-                    existing.append((start_t, end_t))
-            start_t += slice_duration
 
     chosen.sort(key=lambda x: x[0].start)
     return chosen[:n]
@@ -1612,7 +1579,7 @@ async def run_pipeline(vpath: str, url_or_name: str, n: int, base: str, job_id: 
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    chosen_chunks = fill_requested_chunks(chosen_chunks, vpath, n, candidates=chunks, target_dur=target_sec, max_dur=max_sec)
+    chosen_chunks = fill_requested_chunks(chosen_chunks, n, candidates=chunks)
 
     update_job(55, "Rendering downloadable MP4 clips...")
     clips_out = [None] * len(chosen_chunks)
@@ -1786,7 +1753,7 @@ async def run_youtube_transcript_first_pipeline(url: str, n: int, base: str, job
             if not any(cc[0].text == hc.text for cc in chosen_chunks):
                 chosen_chunks.append((hc, htitle))
 
-    chosen_chunks = fill_requested_chunks(chosen_chunks, "", n, candidates=chunks, target_dur=target_sec, max_dur=max_sec)
+    chosen_chunks = fill_requested_chunks(chosen_chunks, n, candidates=chunks)
 
     if not chosen_chunks:
         raise Exception("No viable caption segments selected.")
@@ -2251,7 +2218,7 @@ try:
     import modal
     image = (
         modal.Image.debian_slim(python_version="3.11")
-        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless", "youtube-transcript-api", "edge-tts")
+        .pip_install("fastapi", "yt-dlp>=2025.07.21", "groq", "openai", "requests", "supabase", "python-dotenv", "python-multipart", "opencv-python-headless", "youtube-transcript-api", "edge-tts")
         .apt_install("ffmpeg")
     )
     modal_app = modal.App("clipz-stream")

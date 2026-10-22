@@ -673,8 +673,8 @@ function renderInteractiveWorkspace(resultData) {
                     <div class="card-title">Clip ${index + 1}</div>
                     <div class="text-caption" style="margin-top: 2px;">${escapeHtml(clip.title || 'Untitled')}</div>
                 </div>
-                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 700; color: var(--accent); background: var(--accent-muted); padding: 4px 10px; border-radius: 999px;">
-                    <i class="fa-solid fa-fire" style="font-size: 0.65rem;"></i> ${(clip.viralScore / 10).toFixed(1)}
+                <span title="Heuristic hook score, not a prediction of reach" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 700; color: var(--accent); background: var(--accent-muted); padding: 4px 10px; border-radius: 999px;">
+                    <i class="fa-solid fa-bolt" style="font-size: 0.65rem;"></i> Hook ${(Number(clip.viralScore || 0) / 10).toFixed(1)}
                 </span>
             </div>
             <div style="display: flex; gap: var(--space-4); margin-bottom: var(--space-4);">
@@ -811,12 +811,12 @@ function renderResults(resultData) {
 
         const card = document.createElement('div');
         card.className = 'clip-card';
-        const viralScoreVal = clip.viralScore ? (clip.viralScore / 10).toFixed(1) : '9.0';
+        const hookScoreVal = (Number(clip.viralScore || 0) / 10).toFixed(1);
         card.innerHTML = `
             <div class="clip-thumb" onclick="openVideoModal(${index})">
                 <video src="${safeClipUrl}" playsinline preload="metadata" muted loop></video>
                 <div class="clip-duration">${durationLabel}</div>
-                <div class="clip-score-badge"><i class="fa-solid fa-fire"></i> ${viralScoreVal}</div>
+                <div class="clip-score-badge" title="Heuristic hook score, not a prediction of reach"><i class="fa-solid fa-bolt"></i> Hook ${hookScoreVal}</div>
             </div>
             <div class="clip-body">
                 <div class="clip-title">#${index + 1} ${escapeHtml(clipTitle)}</div>

@@ -8,6 +8,7 @@ image = (
     .apt_install("ffmpeg")
     .pip_install(
         "groq",
+        "openai",
         "supabase",
         "yt-dlp",
         "fastapi",
@@ -23,7 +24,7 @@ image = (
         "youtube-transcript-api"
     )
     .env({
-        "BUILD_ID": "20261020_v14",
+        "BUILD_ID": "20261021_v15",
         "SUPABASE_URL": "https://oprejbzmizpsuhflagss.supabase.co",
         "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcmVqYnptaXpwc3VoZmxhZ3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3ODAxMzksImV4cCI6MjEwMDM1NjEzOX0.HQX82um7uP8-e-kdLUyK6lLybWW3ufGy8cGSqRw2_fY",
         "GROQ_API_KEY": os.getenv("GROQ_API_KEY", ""),
